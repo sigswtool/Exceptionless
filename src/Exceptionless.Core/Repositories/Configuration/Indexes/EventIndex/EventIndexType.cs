@@ -17,6 +17,7 @@ namespace Exceptionless.Core.Repositories.Configuration {
 
         public string Pipeline { get; } = "events-pipeline";
 
+        // TODO: Specify an _all field with analyzer settings.
         public override TypeMappingDescriptor<PersistentEvent> BuildMapping(TypeMappingDescriptor<PersistentEvent> map) {
             var mapping = base.BuildMapping(map)
                 .Dynamic(false)
@@ -80,7 +81,7 @@ ctx.error.message = messages;
 ctx.error.code = codes;";
 
             var response = await Configuration.Client.PutPipelineAsync(Pipeline, d => d.Processors(p => p
-                .Script(s => new ScriptProcessor { Inline = FLATTEN_ERRORS_SCRIPT.Replace("\r\n", String.Empty).Replace("    ", " ") })));
+                .Script(s => new ScriptProcessor { Source = FLATTEN_ERRORS_SCRIPT.Replace("\r\n", String.Empty).Replace("    ", " ") })));
 
             var logger = Configuration.LoggerFactory.CreateLogger<EventIndexType>();
             if (logger.IsEnabled(LogLevel.Trace))

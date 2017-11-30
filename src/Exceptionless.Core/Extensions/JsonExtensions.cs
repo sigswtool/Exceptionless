@@ -220,6 +220,11 @@ namespace Exceptionless.Core.Extensions {
         }
 
         public static void AddModelConverters(this JsonSerializerSettings settings, ILogger logger) {
+            foreach(var converter in GetModelConverters(logger))
+                settings.Converters.Add(converter);
+        }
+
+        public static List<JsonConverter> GetModelConverters(ILogger logger) {
             var knownEventDataTypes = new Dictionary<string, Type> {
                 { Event.KnownDataKeys.Error, typeof(Error) },
                 { Event.KnownDataKeys.EnvironmentInfo, typeof(EnvironmentInfo) },
@@ -235,21 +240,23 @@ namespace Exceptionless.Core.Extensions {
                 { Project.KnownDataKeys.SlackToken, typeof(SlackToken) }
             };
 
-            settings.Converters.Add(new DataObjectConverter<Organization>(logger));
-            settings.Converters.Add(new DataObjectConverter<Project>(logger, knownProjectDataTypes));
-            settings.Converters.Add(new DataObjectConverter<PersistentEvent>(logger, knownEventDataTypes));
-            settings.Converters.Add(new DataObjectConverter<Event>(logger, knownEventDataTypes));
-            settings.Converters.Add(new DataObjectConverter<EnvironmentInfo>(logger));
-            settings.Converters.Add(new DataObjectConverter<Error>(logger));
-            settings.Converters.Add(new DataObjectConverter<InnerError>(logger));
-            settings.Converters.Add(new DataObjectConverter<Method>(logger));
-            settings.Converters.Add(new DataObjectConverter<Module>(logger));
-            settings.Converters.Add(new DataObjectConverter<Parameter>(logger));
-            settings.Converters.Add(new DataObjectConverter<RequestInfo>(logger));
-            settings.Converters.Add(new DataObjectConverter<SimpleError>(logger));
-            settings.Converters.Add(new DataObjectConverter<StackFrame>(logger));
-            settings.Converters.Add(new DataObjectConverter<UserDescription>(logger));
-            settings.Converters.Add(new DataObjectConverter<UserInfo>(logger));
+            return new List<JsonConverter> {
+                new DataObjectConverter<Organization>(logger),
+                new DataObjectConverter<Project>(logger, knownProjectDataTypes),
+                new DataObjectConverter<PersistentEvent>(logger, knownEventDataTypes),
+                new DataObjectConverter<Event>(logger, knownEventDataTypes),
+                new DataObjectConverter<EnvironmentInfo>(logger),
+                new DataObjectConverter<Error>(logger),
+                new DataObjectConverter<InnerError>(logger),
+                new DataObjectConverter<Method>(logger),
+                new DataObjectConverter<Module>(logger),
+                new DataObjectConverter<Parameter>(logger),
+                new DataObjectConverter<RequestInfo>(logger),
+                new DataObjectConverter<SimpleError>(logger),
+                new DataObjectConverter<StackFrame>(logger),
+                new DataObjectConverter<UserDescription>(logger),
+                new DataObjectConverter<UserInfo>(logger)
+            };
         }
     }
 

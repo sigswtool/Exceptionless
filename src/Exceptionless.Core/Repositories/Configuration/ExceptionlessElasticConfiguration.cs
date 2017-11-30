@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,6 +17,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
+using Nest.JsonNetSerializer;
 using Newtonsoft.Json;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -48,7 +50,7 @@ namespace Exceptionless.Core.Repositories.Configuration {
 
         protected override IElasticClient CreateElasticClient() {
             var connectionPool = CreateConnectionPool();
-            var settings = new ConnectionSettings(connectionPool, s => new ElasticsearchJsonNetSerializer(s, _logger));
+            var settings = new ConnectionSettings(connectionPool, (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values, null /*todo*/, _logger));
             ConfigureSettings(settings);
             foreach (var index in Indexes)
                 index.ConfigureSettings(settings);
@@ -86,13 +88,30 @@ namespace Exceptionless.Core.Repositories.Configuration {
         }
     }
 
-    public class ElasticsearchJsonNetSerializer : JsonNetSerializer {
-        public ElasticsearchJsonNetSerializer(IConnectionSettingsValues settings, ILogger logger)
-            : base(settings, (serializerSettings, values) => {
-                var resolver = new ElasticDynamicTypeContractResolver(values, new List<Func<Type, JsonConverter>>());
-                serializerSettings.ContractResolver = resolver;
-                serializerSettings.AddModelConverters(logger);
-            }) {
+    public class ElasticsearchJsonNetSerializer : ConnectionSettingsAwareSerializerBase {
+        private readonly JsonSerializerSettings _settings;
+        private readonly ILogger _logger;
+
+        public ElasticsearchJsonNetSerializer(IElasticsearchSerializer serializer, IConnectionSettingsValues values, JsonSerializerSettings settings, ILogger logger) : base(serializer, values) {
+            _settings = settings;
+            _logger = logger;
+        }
+
+        protected override JsonSerializerSettings CreateJsonSerializerSettings() {
+            return _settings;
+        }
+
+        protected override IEnumerable<JsonConverter> CreateJsonConverters() {
+            return JsonExtensions.GetModelConverters(_logger);
+        }
+
+        protected override void ModifyContractResolver(ConnectionSettingsAwareContractResolver resolver) {
+            base.ModifyContractResolver(resolver);
+            // NOT FIXED
+   //         NamingStrategy = new CamelCaseNamingStrategy
+   //{
+   //                   ProcessDictionaryKeys = false
+   // }
         }
     }
 }

@@ -11,6 +11,7 @@ namespace Exceptionless.Core.Repositories.Configuration {
     public class StackIndexType : IndexTypeBase<Stack> {
         public StackIndexType(StackIndex index) : base(index, "stacks") { }
 
+        // TODO: Specify an _all field with analyzer settings.
         public override TypeMappingDescriptor<Stack> BuildMapping(TypeMappingDescriptor<Stack> map) {
             return base.BuildMapping(map)
                 .Dynamic(false)
