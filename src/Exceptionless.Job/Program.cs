@@ -3,6 +3,7 @@ using Foundatio.Jobs.Commands;
 using System.Collections.Generic;
 using Serilog;
 using Exceptionless.Insulation.Jobs;
+using Foundatio.Jobs;
 
 namespace Exceptionless.Job {
     public class Program {
@@ -10,7 +11,8 @@ namespace Exceptionless.Job {
             IServiceProvider serviceProvider = null;
 
             try {
-                serviceProvider = JobServiceProvider.GetServiceProvider();
+                var cancellationToken = JobRunner.GetShutdownCancellationToken();
+                serviceProvider = JobServiceProvider.GetServiceProvider(cancellationToken);
 
                 int result = JobCommands.Run(args, serviceProvider, app => {
                     app.JobConfiguration.Assemblies = new List<string> { "Exceptionless.Core", "Foundatio" };

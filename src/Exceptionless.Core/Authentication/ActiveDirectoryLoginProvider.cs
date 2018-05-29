@@ -8,9 +8,14 @@ namespace Exceptionless.Core.Authentication {
         private const string AD_LASTNAME = "sn";
         private const string AD_DISTINGUISHEDNAME = "distinguishedName";
         private const string AD_USERNAME = "sAMAccountName";
+        private AppConfiguration _config;
+
+        public ActiveDirectoryLoginProvider(AppConfiguration config) {
+            _config = config;
+        }
 
         public bool Login(string username, string password) {
-            using (DirectoryEntry de = new DirectoryEntry(Settings.Current.LdapConnectionString, username, password, AuthenticationTypes.Secure)) {
+            using (DirectoryEntry de = new DirectoryEntry(_config.LdapConnectionString, username, password, AuthenticationTypes.Secure)) {
                 using (DirectorySearcher ds = new DirectorySearcher(de, $"(&({AD_USERNAME}={username}))", new[] { AD_DISTINGUISHEDNAME })) {
                     try {
                         SearchResult result = ds.FindOne();
@@ -25,7 +30,7 @@ namespace Exceptionless.Core.Authentication {
         }
 
         public string GetUsernameFromEmailAddress(string email) {
-            using (DirectoryEntry entry = new DirectoryEntry(Settings.Current.LdapConnectionString)) {
+            using (DirectoryEntry entry = new DirectoryEntry(_config.LdapConnectionString)) {
                 using (DirectorySearcher searcher = new DirectorySearcher(entry, $"(&({AD_EMAIL}={email}))", new[] { AD_USERNAME })) {
                     SearchResult result = searcher.FindOne();
                     return result?.Properties[AD_USERNAME][0].ToString();
@@ -47,7 +52,7 @@ namespace Exceptionless.Core.Authentication {
         }
 
         private SearchResult FindUser(string username) {
-            using (DirectoryEntry entry = new DirectoryEntry(Settings.Current.LdapConnectionString)) {
+            using (DirectoryEntry entry = new DirectoryEntry(_config.LdapConnectionString)) {
                 using (DirectorySearcher searcher = new DirectorySearcher(entry, $"(&({AD_USERNAME}={username}))", new[] { AD_FIRSTNAME, AD_LASTNAME, AD_EMAIL })) {
                     return searcher.FindOne();
                 }

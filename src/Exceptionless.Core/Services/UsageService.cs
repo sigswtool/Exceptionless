@@ -16,13 +16,13 @@ using Microsoft.Extensions.Logging;
 
 namespace Exceptionless.Core.Services {
     public sealed class UsageService {
-        private readonly IOrganizationRepository _organizationRepository;
-        private readonly IProjectRepository _projectRepository;
+        private readonly Lazy<IOrganizationRepository> _organizationRepository;
+        private readonly Lazy<IProjectRepository> _projectRepository;
         private readonly ICacheClient _cache;
         private readonly IMessagePublisher _messagePublisher;
         private readonly ILogger<UsageService> _logger;
 
-        public UsageService(IOrganizationRepository organizationRepository, IProjectRepository projectRepository, ICacheClient cache, IMessagePublisher messagePublisher, ILoggerFactory loggerFactory = null) {
+        public UsageService(Lazy<IOrganizationRepository> organizationRepository, Lazy<IProjectRepository> projectRepository, ICacheClient cache, IMessagePublisher messagePublisher, ILoggerFactory loggerFactory = null) {
             _organizationRepository = organizationRepository;
             _projectRepository = projectRepository;
             _cache = cache;
@@ -104,12 +104,12 @@ namespace Exceptionless.Core.Services {
                 return;
 
             try {
-                org = await _organizationRepository.GetByIdAsync(org.Id).AnyContext();
+                org = await _organizationRepository.Value.GetByIdAsync(org.Id).AnyContext();
                 org.SetMonthlyUsage(usage.MonthlyTotal, usage.MonthlyBlocked, usage.MonthlyTooBig);
                 if (usage.HourlyBlocked > 0 || usage.HourlyTooBig > 0)
                     org.SetHourlyOverage(usage.HourlyTotal, usage.HourlyBlocked, usage.HourlyTooBig);
 
-                await _organizationRepository.SaveAsync(org, o => o.Cache()).AnyContext();
+                await _organizationRepository.Value.SaveAsync(org, o => o.Cache()).AnyContext();
                 await _cache.SetAsync(GetUsageSavedCacheKey(org.Id), SystemClock.UtcNow, TimeSpan.FromDays(32)).AnyContext();
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error while saving organization usage data.");
@@ -125,12 +125,12 @@ namespace Exceptionless.Core.Services {
                 return;
 
             try {
-                project = await _projectRepository.GetByIdAsync(project.Id).AnyContext();
+                project = await _projectRepository.Value.GetByIdAsync(project.Id).AnyContext();
                 project.SetMonthlyUsage(usage.MonthlyTotal, usage.MonthlyBlocked, usage.MonthlyTooBig, org.GetMaxEventsPerMonthWithBonus());
                 if (usage.HourlyBlocked > 0 || usage.HourlyTooBig > 0)
                     project.SetHourlyOverage(usage.HourlyTotal, usage.HourlyBlocked, usage.HourlyTooBig, org.GetHourlyEventLimit());
 
-                await _projectRepository.SaveAsync(project, o => o.Cache()).AnyContext();
+                await _projectRepository.Value.SaveAsync(project, o => o.Cache()).AnyContext();
                 await _cache.SetAsync(GetUsageSavedCacheKey(org.Id, project.Id), SystemClock.UtcNow, TimeSpan.FromDays(32)).AnyContext();
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error while saving project usage data.");

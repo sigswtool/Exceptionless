@@ -10,13 +10,16 @@ using Microsoft.Extensions.Logging;
 namespace Exceptionless.Core.Jobs.Elastic {
     [Job(Description = "Takes an Elasticsearch organizations index snapshot ", IsContinuous = false)]
     public class OrganizationSnapshotJob : SnapshotJob {
+        private readonly AppConfiguration _config;
+
         public OrganizationSnapshotJob(ExceptionlessElasticConfiguration configuration, ILockProvider lockProvider, ILoggerFactory loggerFactory) : base(configuration.Client, lockProvider, loggerFactory) {
-            Repository = Settings.Current.AppScopePrefix + "ex_organizations";
+            _config = configuration.AppConfig;
+            Repository = _config.AppScopePrefix + "ex_organizations";
             IncludedIndexes.Add("organizations*");
         }
 
         public override Task<JobResult> RunAsync(CancellationToken cancellationToken = new CancellationToken()) {
-            if (!Settings.Current.EnableSnapshotJobs)
+            if (!_config.EnableSnapshotJobs)
                 return Task.FromResult(JobResult.Success);
 
             return base.RunAsync(cancellationToken);

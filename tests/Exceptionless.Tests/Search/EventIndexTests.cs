@@ -14,7 +14,7 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class EventIndexTests : ElasticTestBase {
+    public sealed class EventIndexTests : TestWithElasticsearch {
         private readonly IEventRepository _repository;
         private readonly PersistentEventQueryValidator _validator;
 
@@ -448,7 +448,7 @@ namespace Exceptionless.Tests.Repositories {
 
         private async Task CreateEventsAsync() {
             string path = Path.Combine("..", "..", "..", "Search", "Data");
-            var parserPluginManager = GetService<EventParserPluginManager>();
+            var parserPluginManager = GetService<EventParser>();
             foreach (string file in Directory.GetFiles(path, "event*.json", SearchOption.AllDirectories)) {
                 if (file.EndsWith("summary.json"))
                     continue;
@@ -468,7 +468,7 @@ namespace Exceptionless.Tests.Repositories {
         private async Task<FindResults<PersistentEvent>> GetByFilterAsync(string filter) {
             var result = await _validator.ValidateQueryAsync(filter);
             Assert.True(result.IsValid);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
             return await _repository.GetByFilterAsync(null, filter, null, null, DateTime.MinValue, DateTime.MaxValue);
         }
     }

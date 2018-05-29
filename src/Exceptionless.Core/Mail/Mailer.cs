@@ -18,15 +18,13 @@ using Microsoft.Extensions.Logging;
 namespace Exceptionless.Core.Mail {
     public class Mailer : IMailer {
         private readonly ConcurrentDictionary<string, Func<object, string>> _cachedTemplates = new ConcurrentDictionary<string, Func<object, string>>();
-        private readonly IQueue<MailMessage> _queue;
         private readonly FormattingPluginManager _pluginManager;
-        private readonly IMetricsClient _metrics;
         private readonly ILogger _logger;
+        private readonly IAppService _app;
 
-        public Mailer(IQueue<MailMessage> queue, FormattingPluginManager pluginManager, IMetricsClient metrics, ILogger<Mailer> logger) {
-            _queue = queue;
+        public Mailer(IAppService app, FormattingPluginManager pluginManager, ILogger<Mailer> logger) {
+            _app = app;
             _pluginManager = pluginManager;
-            _metrics = metrics;
             _logger = logger;
         }
 
@@ -43,7 +41,7 @@ namespace Exceptionless.Core.Mail {
 
             var messageData = new Dictionary<string, object> {
                 { "Subject", result.Subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "ProjectName", project.Name },
                 { "ProjectId", project.Id },
                 { "StackId", ev.StackId },
@@ -112,7 +110,7 @@ namespace Exceptionless.Core.Mail {
             string subject = $"{sender.FullName} added you to the organization \"{organization.Name}\" on Exceptionless";
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "OrganizationId", organization.Id },
                 { "OrganizationName", organization.Name }
             };
@@ -129,7 +127,7 @@ namespace Exceptionless.Core.Mail {
             string subject = $"{sender.FullName} invited you to join the organization \"{organization.Name}\" on Exceptionless";
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "InviteToken", invite.Token }
             };
 
@@ -148,7 +146,7 @@ namespace Exceptionless.Core.Mail {
 
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "OrganizationId", organization.Id },
                 { "OrganizationName", organization.Name },
                 { "IsOverMonthlyLimit", isOverMonthlyLimit },
@@ -168,7 +166,7 @@ namespace Exceptionless.Core.Mail {
             string subject = $"[{organization.Name}] Payment failed! Update billing information to avoid service interruption!";
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "OrganizationId", organization.Id },
                 { "OrganizationName", organization.Name }
             };
@@ -185,7 +183,7 @@ namespace Exceptionless.Core.Mail {
             string subject = $"[{project.Name}] Summary for {startDate.ToLongDateString()}";
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "OrganizationId", project.OrganizationId },
                 { "ProjectId", project.Id },
                 { "ProjectName", project.Name },
@@ -226,7 +224,7 @@ namespace Exceptionless.Core.Mail {
             const string subject = "Exceptionless Account Confirmation";
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "UserFullName", user.FullName },
                 { "UserVerifyEmailAddressToken", user.VerifyEmailAddressToken }
             };
@@ -246,7 +244,7 @@ namespace Exceptionless.Core.Mail {
             const string subject = "Exceptionless Password Reset";
             var data = new Dictionary<string, object> {
                 { "Subject", subject },
-                { "BaseUrl", Settings.Current.BaseURL },
+                { "BaseUrl", _app.Config.BaseURL },
                 { "UserFullName", user.FullName },
                 { "UserPasswordResetToken", user.PasswordResetToken }
             };
@@ -279,20 +277,20 @@ namespace Exceptionless.Core.Mail {
 
         private Task QueueMessageAsync(MailMessage message, string metricsName) {
             CleanAddresses(message);
-            _metrics.Counter($"mailer.{metricsName}");
-            return _queue.EnqueueAsync(message);
+            _app.Metrics.Counter($"mailer.{metricsName}");
+            return _app.Queues.MailMessages.EnqueueAsync(message);
         }
 
-        private static void CleanAddresses(MailMessage message) {
-            if (Settings.Current.AppMode == AppMode.Production)
+        private void CleanAddresses(MailMessage message) {
+            if (_app.Config.AppMode == AppMode.Production)
                 return;
 
             string address = message.To.ToLowerInvariant();
-            if (Settings.Current.AllowedOutboundAddresses.Any(address.Contains))
+            if (_app.Config.AllowedOutboundAddresses.Any(address.Contains))
                 return;
 
             message.Subject = $"[{message.To}] {message.Subject}".StripInvisible();
-            message.To = Settings.Current.TestEmailAddress;
+            message.To = _app.Config.TestEmailAddress;
         }
     }
 }

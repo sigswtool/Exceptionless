@@ -15,17 +15,17 @@ using Microsoft.Extensions.Logging;
 namespace Exceptionless.Core.Plugins.EventProcessor {
     [Priority(0)]
     public sealed class ThrottleBotsPlugin : EventProcessorPluginBase {
-        private readonly ICacheClient _cache;
+        private readonly IAppService _app;
         private readonly IQueue<WorkItemData> _workItemQueue;
         private readonly TimeSpan _throttlingPeriod = TimeSpan.FromMinutes(5);
 
-        public ThrottleBotsPlugin(ICacheClient cacheClient, IQueue<WorkItemData> workItemQueue, ILoggerFactory loggerFactory = null) : base(loggerFactory) {
-            _cache = cacheClient;
+        public ThrottleBotsPlugin(IAppService app, IQueue<WorkItemData> workItemQueue) : base(app.LoggerFactory) {
+            _app = app;
             _workItemQueue = workItemQueue;
         }
 
         public override async Task EventBatchProcessingAsync(ICollection<EventContext> contexts) {
-            if (Settings.Current.AppMode == AppMode.Development)
+            if (_app.Config.AppMode == AppMode.Development)
                 return;
 
             var firstContext = contexts.First();
@@ -41,16 +41,16 @@ namespace Exceptionless.Core.Plugins.EventProcessor {
                 var clientIpContexts = clientIpAddressGroup.ToList();
 
                 string throttleCacheKey = String.Concat("bot:", clientIpAddressGroup.Key, ":", SystemClock.UtcNow.Floor(_throttlingPeriod).Ticks);
-                var requestCount = await _cache.GetAsync<int?>(throttleCacheKey, null).AnyContext();
+                var requestCount = await _app.Cache.GetAsync<int?>(throttleCacheKey, null).AnyContext();
                 if (requestCount.HasValue) {
-                    await _cache.IncrementAsync(throttleCacheKey, clientIpContexts.Count).AnyContext();
+                    await _app.Cache.IncrementAsync(throttleCacheKey, clientIpContexts.Count).AnyContext();
                     requestCount += clientIpContexts.Count;
                 } else {
-                    await _cache.SetAsync(throttleCacheKey, clientIpContexts.Count, SystemClock.UtcNow.Ceiling(_throttlingPeriod)).AnyContext();
+                    await _app.Cache.SetAsync(throttleCacheKey, clientIpContexts.Count, SystemClock.UtcNow.Ceiling(_throttlingPeriod)).AnyContext();
                     requestCount = clientIpContexts.Count;
                 }
 
-                if (requestCount < Settings.Current.BotThrottleLimit)
+                if (requestCount < _app.Config.BotThrottleLimit)
                     return;
 
                 _logger.LogInformation("Bot throttle triggered. IP: {IP} Time: {ThrottlingPeriod} Project: {project}", clientIpAddressGroup.Key, SystemClock.UtcNow.Floor(_throttlingPeriod), firstContext.Event.ProjectId);

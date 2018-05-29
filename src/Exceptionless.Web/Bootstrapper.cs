@@ -20,7 +20,7 @@ using Stripe;
 
 namespace Exceptionless.Web {
     public class Bootstrapper {
-        public static void RegisterServices(IServiceCollection container, ILoggerFactory loggerFactory) {
+        public static void RegisterServices(IServiceCollection container, AppConfiguration config, ILoggerFactory loggerFactory) {
             container.AddSingleton<WebSocketConnectionManager>();
             container.AddSingleton<MessageBusBroker>();
             container.AddSingleton<MessageBusBrokerMiddleware>();
@@ -31,16 +31,16 @@ namespace Exceptionless.Web {
             container.AddTransient<Profile, ApiMappings>();
 
             Core.Bootstrapper.RegisterServices(container);
-            bool includeInsulation = !String.IsNullOrEmpty(Settings.Current.RedisConnectionString) || 
-                !String.IsNullOrEmpty(Settings.Current.AzureStorageConnectionString) ||
-                !String.IsNullOrEmpty(Settings.Current.AzureStorageQueueConnectionString) ||
-                !String.IsNullOrEmpty(Settings.Current.AliyunStorageConnectionString) ||
-                !String.IsNullOrEmpty(Settings.Current.MinioStorageConnectionString) ||
-                Settings.Current.EnableMetricsReporting;
+            bool includeInsulation = !String.IsNullOrEmpty(config.RedisConnectionString) || 
+                !String.IsNullOrEmpty(config.AzureStorageConnectionString) ||
+                !String.IsNullOrEmpty(config.AzureStorageQueueConnectionString) ||
+                !String.IsNullOrEmpty(config.AliyunStorageConnectionString) ||
+                !String.IsNullOrEmpty(config.MinioStorageConnectionString) ||
+                config.EnableMetricsReporting;
             if (includeInsulation)
-                Insulation.Bootstrapper.RegisterServices(container, Settings.Current.RunJobsInProcess);
+                Insulation.Bootstrapper.RegisterServices(container, config.RunJobsInProcess);
 
-            if (Settings.Current.RunJobsInProcess)
+            if (config.RunJobsInProcess)
                 container.AddSingleton<IHostedService, JobsHostedService>();
 
             var logger = loggerFactory.CreateLogger<Startup>();

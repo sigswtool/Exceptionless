@@ -30,8 +30,10 @@ namespace Exceptionless.Core.Jobs {
         private readonly IEventRepository _eventRepository;
         private readonly IMailer _mailer;
         private readonly ILockProvider _lockProvider;
+        private readonly AppConfiguration _config;
+        private readonly BillingManager _billingManager;
 
-        public DailySummaryJob(IProjectRepository projectRepository, IOrganizationRepository organizationRepository, IUserRepository userRepository, IStackRepository stackRepository, IEventRepository eventRepository, IMailer mailer, ICacheClient cacheClient, ILoggerFactory loggerFactory = null) : base(loggerFactory) {
+        public DailySummaryJob(IProjectRepository projectRepository, IOrganizationRepository organizationRepository, IUserRepository userRepository, IStackRepository stackRepository, IEventRepository eventRepository, IMailer mailer, ICacheClient cacheClient, AppConfiguration config, BillingManager billingManager, ILoggerFactory loggerFactory = null) : base(loggerFactory) {
             _projectRepository = projectRepository;
             _organizationRepository = organizationRepository;
             _userRepository = userRepository;
@@ -39,6 +41,8 @@ namespace Exceptionless.Core.Jobs {
             _eventRepository = eventRepository;
             _mailer = mailer;
             _lockProvider = new ThrottlingLockProvider(cacheClient, 1, TimeSpan.FromHours(1));
+            _config = config;
+            _billingManager = billingManager;
         }
 
         protected override Task<ILock> GetLockAsync(CancellationToken cancellationToken = default) {
@@ -46,7 +50,7 @@ namespace Exceptionless.Core.Jobs {
         }
 
         protected override async Task<JobResult> RunInternalAsync(JobContext context) {
-            if (!Settings.Current.EnableDailySummary || _mailer == null)
+            if (!_config.EnableDailySummary || _mailer == null)
                 return JobResult.SuccessWithMessage("Summary notifications are disabled.");
 
             var results = await _projectRepository.GetByNextSummaryNotificationOffsetAsync(9).AnyContext();
@@ -131,7 +135,7 @@ namespace Exceptionless.Core.Jobs {
             double newTotal = result.Aggregations.Terms<double>("terms_first")?.Buckets.FirstOrDefault()?.Total ?? 0;
             double uniqueTotal = result.Aggregations.Cardinality("cardinality_stack_id")?.Value ?? 0;
             bool hasSubmittedEvents = total > 0 || project.IsConfigured.GetValueOrDefault();
-            bool isFreePlan = organization.PlanId == BillingManager.FreePlan.Id;
+            bool isFreePlan = organization.PlanId == _billingManager.FreePlan.Id;
 
             string fixedFilter = $"{EventIndexType.Alias.Type}:{Event.KnownTypes.Error} {EventIndexType.Alias.IsHidden}:false {EventIndexType.Alias.IsFixed}:true";
             var fixedResult = await _eventRepository.CountBySearchAsync(systemFilter, fixedFilter, "sum:count~1").AnyContext();

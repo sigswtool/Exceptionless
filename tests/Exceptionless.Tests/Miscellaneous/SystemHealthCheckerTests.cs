@@ -5,10 +5,10 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Miscellaneous {
-    public class SystemHealthCheckerTests : ElasticTestBase {
+    public class SystemHealthCheckerTests : TestWithElasticsearch {
         private readonly SystemHealthChecker _checker;
 
-        public SystemHealthCheckerTests(ITestOutputHelper output) : base(output) {
+        public SystemHealthCheckerTests(TestServerFixture fixture) : base(fixture) {
             _checker = GetService<SystemHealthChecker>();
         }
 

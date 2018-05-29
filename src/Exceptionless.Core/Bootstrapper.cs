@@ -51,7 +51,8 @@ using DataDictionary = Exceptionless.Core.Models.DataDictionary;
 
 namespace Exceptionless.Core {
     public class Bootstrapper {
-        public static void RegisterServices(IServiceCollection container) {
+        public static void RegisterServices(IServiceCollection container, AppConfiguration config) {
+            container.AddTransient(typeof(Lazy<>), typeof(LazyServiceProvider<>));
             container.AddSingleton<IServiceCollection>(container);
             JsonConvert.DefaultSettings = () => new JsonSerializerSettings {
                 DateParseHandling = DateParseHandling.DateTimeOffset
@@ -78,7 +79,7 @@ namespace Exceptionless.Core {
 
             container.AddSingleton<ExceptionlessElasticConfiguration>();
             container.AddSingleton<IElasticConfiguration>(s => s.GetRequiredService<ExceptionlessElasticConfiguration>());
-            if (!Settings.Current.DisableIndexConfiguration)
+            if (!config.DisableIndexConfiguration)
                 container.AddStartupAction<ExceptionlessElasticConfiguration>();
 
             container.AddStartupAction(CreateSampleDataAsync);
@@ -121,9 +122,9 @@ namespace Exceptionless.Core {
             container.AddSingleton<IMessagePublisher>(s => s.GetRequiredService<IMessageBus>());
             container.AddSingleton<IMessageSubscriber>(s => s.GetRequiredService<IMessageBus>());
 
-            if (!String.IsNullOrEmpty(Settings.Current.StorageFolder)) {
+            if (!String.IsNullOrEmpty(config.StorageFolder)) {
                 container.AddSingleton<IFileStorage>(s => new FolderFileStorage(new FolderFileStorageOptions {
-                    Folder = Settings.Current.StorageFolder,
+                    Folder = config.StorageFolder,
                     Serializer = s.GetRequiredService<ITextSerializer>(),
                     LoggerFactory = s.GetRequiredService<ILoggerFactory>()
                 }));
@@ -134,6 +135,9 @@ namespace Exceptionless.Core {
                 }));
             }
 
+            container.AddSingleton<IAppService, AppService>();
+            container.AddSingleton<IAppQueues, AppQueues>();
+            container.AddSingleton<IDatabase, Database>();
             container.AddSingleton<IStackRepository, StackRepository>();
             container.AddSingleton<IEventRepository, EventRepository>();
             container.AddSingleton<IOrganizationRepository, OrganizationRepository>();
@@ -153,7 +157,7 @@ namespace Exceptionless.Core {
             container.AddSingleton(typeof(IValidator<>), typeof(Bootstrapper).Assembly);
             container.AddSingleton(typeof(IPipelineAction<EventContext>), typeof(Bootstrapper).Assembly);
             container.AddSingleton(typeof(IPlugin), typeof(Bootstrapper).Assembly);
-            container.AddSingleton<EventParserPluginManager>();
+            container.AddSingleton<EventParser>();
             container.AddSingleton<EventPluginManager>();
             container.AddSingleton<EventUpgraderPluginManager>();
             container.AddSingleton<FormattingPluginManager>();
@@ -169,10 +173,10 @@ namespace Exceptionless.Core {
             container.AddSingleton<ILockProvider>(s => s.GetRequiredService<CacheLockProvider>());
             container.AddTransient<StripeEventHandler>();
             container.AddSingleton<BillingManager>();
-            container.AddSingleton<EventPostService>();
+            container.AddSingleton<EventService>();
             container.AddSingleton<SampleDataService>();
             container.AddSingleton<SemanticVersionParser>();
-            container.AddSingleton<EventParserPluginManager>();
+            container.AddSingleton<EventParser>();
             container.AddSingleton<EventPipeline>();
             container.AddSingleton<EventPluginManager>();
             container.AddSingleton<FormattingPluginManager>();
@@ -190,7 +194,7 @@ namespace Exceptionless.Core {
             container.AddTransient<AutoMapper.Profile, CoreMappings>();
             container.AddSingleton<IMapper>(s => {
                 var profiles = s.GetServices<AutoMapper.Profile>();
-                var config = new MapperConfiguration(cfg => {
+                var mapperConfig = new MapperConfiguration(cfg => {
                     cfg.AddCollectionMappers();
                     cfg.ConstructServicesUsing(s.GetRequiredService);
 
@@ -198,49 +202,51 @@ namespace Exceptionless.Core {
                         cfg.AddProfile(profile);
                 });
 
-                return config.CreateMapper();
+                return mapperConfig.CreateMapper();
             });
         }
 
-        public static void LogConfiguration(IServiceProvider serviceProvider, ILoggerFactory loggerFactory) {
+        public static void LogConfiguration(IServiceProvider serviceProvider, AppConfiguration config, ILoggerFactory loggerFactory) {
             var logger = loggerFactory.CreateLogger<Bootstrapper>();
             if (!logger.IsEnabled(LogLevel.Warning))
                 return;
 
-            if (!Settings.Current.EnableMetricsReporting)
+            if (!config.EnableMetricsReporting)
                 logger.LogWarning("StatsD Metrics is NOT enabled on {MachineName}.", Environment.MachineName);
 
-            if (String.IsNullOrEmpty(Settings.Current.RedisConnectionString))
+            if (String.IsNullOrEmpty(config.RedisConnectionString))
                 logger.LogWarning("Redis is NOT enabled on {MachineName}.", Environment.MachineName);
 
-            if (!Settings.Current.EnableWebSockets)
+            if (!config.EnableWebSockets)
                 logger.LogWarning("Web Sockets is NOT enabled on {MachineName}", Environment.MachineName);
 
-            if (Settings.Current.AppMode == AppMode.Development)
+            if (config.AppMode == AppMode.Development)
                 logger.LogWarning("Emails will NOT be sent in Development mode on {MachineName}", Environment.MachineName);
 
-            if (String.IsNullOrEmpty(Settings.Current.AzureStorageConnectionString))
+            if (String.IsNullOrEmpty(config.AzureStorageConnectionString))
                 logger.LogWarning("Azure Storage is NOT enabled on {MachineName}", Environment.MachineName);
 
             var fileStorage = serviceProvider.GetRequiredService<IFileStorage>();
             if (fileStorage is InMemoryFileStorage)
                 logger.LogWarning("Using in memory file storage on {MachineName}", Environment.MachineName);
 
-            if (!Settings.Current.EnableBootstrapStartupActions)
+            if (!config.EnableBootstrapStartupActions)
                 logger.LogWarning("Startup Actions is NOT enabled on {MachineName}", Environment.MachineName);
 
-            if (Settings.Current.DisableIndexConfiguration)
+            if (config.DisableIndexConfiguration)
                 logger.LogWarning("Index Configuration is NOT enabled on {MachineName}", Environment.MachineName);
 
-            if (Settings.Current.EventSubmissionDisabled)
+            if (config.EventSubmissionDisabled)
                 logger.LogWarning("Event Submission is NOT enabled on {MachineName}", Environment.MachineName);
 
-            if (!Settings.Current.EnableAccountCreation)
+            if (!config.EnableAccountCreation)
                 logger.LogWarning("Account Creation is NOT enabled on {MachineName}", Environment.MachineName);
         }
 
         private static async Task CreateSampleDataAsync(IServiceProvider container) {
-            if (Settings.Current.AppMode != AppMode.Development)
+            var config = container.GetRequiredService<AppConfiguration>();
+
+            if (config.AppMode != AppMode.Development)
                 return;
 
             var userRepository = container.GetRequiredService<IUserRepository>();
@@ -251,9 +257,9 @@ namespace Exceptionless.Core {
             await dataHelper.CreateDataAsync().AnyContext();
         }
 
-        public static void RunJobs(IServiceProvider container, ILoggerFactory loggerFactory, CancellationToken token) {
+        public static void RunJobs(IServiceProvider container, AppConfiguration config, ILoggerFactory loggerFactory, CancellationToken token) {
             var logger = loggerFactory.CreateLogger("AppBuilder");
-            if (!Settings.Current.RunJobsInProcess) {
+            if (!config.RunJobsInProcess) {
                 logger.LogInformation("Jobs running out of process.");
                 return;
             }

@@ -27,14 +27,16 @@ namespace Exceptionless.Web.Controllers {
     [ApiExplorerSettings(IgnoreApi = true)]
     public class AdminController : ExceptionlessApiController {
         private readonly ExceptionlessElasticConfiguration _configuration;
+        private readonly BillingManager _billingManager;
         private readonly IFileStorage _fileStorage;
         private readonly IMessagePublisher _messagePublisher;
         private readonly IOrganizationRepository _organizationRepository;
         private readonly IQueue<EventPost> _eventPostQueue;
         private readonly IQueue<WorkItemData> _workItemQueue;
 
-        public AdminController(ExceptionlessElasticConfiguration configuration, IFileStorage fileStorage, IMessagePublisher messagePublisher, IOrganizationRepository organizationRepository, IQueue<EventPost> eventPostQueue, IQueue<WorkItemData> workItemQueue) {
+        public AdminController(ExceptionlessElasticConfiguration configuration, BillingManager billingManager, IFileStorage fileStorage, IMessagePublisher messagePublisher, IOrganizationRepository organizationRepository, IQueue<EventPost> eventPostQueue, IQueue<WorkItemData> workItemQueue) {
             _configuration = configuration;
+            _billingManager = billingManager;
             _fileStorage = fileStorage;
             _messagePublisher = messagePublisher;
             _organizationRepository = organizationRepository;
@@ -43,8 +45,8 @@ namespace Exceptionless.Web.Controllers {
         }
 
         [HttpGet("settings")]
-        public ActionResult<Settings> SettingsRequest() {
-            return Ok(JsonConvert.SerializeObject(Settings.Current, Formatting.Indented));
+        public ActionResult<AppConfiguration> SettingsRequest() {
+            return Ok(JsonConvert.SerializeObject(Config, Formatting.Indented));
         }
 
         [HttpGet("assemblies")]
@@ -62,13 +64,13 @@ namespace Exceptionless.Web.Controllers {
             if (organization == null)
                 return Ok(new { Success = false, Message = "Invalid Organization Id." });
 
-            var plan = BillingManager.GetBillingPlan(planId);
+            var plan = _billingManager.GetBillingPlan(planId);
             if (plan == null)
                 return Ok(new { Success = false, Message = "Invalid PlanId." });
 
-            organization.BillingStatus = !String.Equals(plan.Id, BillingManager.FreePlan.Id) ? BillingStatus.Active : BillingStatus.Trialing;
+            organization.BillingStatus = !String.Equals(plan.Id, _billingManager.FreePlan.Id) ? BillingStatus.Active : BillingStatus.Trialing;
             organization.RemoveSuspension();
-            BillingManager.ApplyBillingPlan(organization, plan, CurrentUser, false);
+            _billingManager.ApplyBillingPlan(organization, plan, CurrentUser, false);
 
             await _organizationRepository.SaveAsync(organization, o => o.Cache());
             await _messagePublisher.PublishAsync(new PlanChanged {
@@ -112,7 +114,7 @@ namespace Exceptionless.Web.Controllers {
         public async Task<IActionResult> RunJobAsync(string name) {
             switch (name.ToLowerInvariant()) {
                 case "indexes":
-                    if (!Settings.Current.DisableIndexConfiguration)
+                    if (!Config.DisableIndexConfiguration)
                         await _configuration.ConfigureIndexesAsync(beginReindexingOutdated: false);
                     break;
                 case "update-organization-plans":

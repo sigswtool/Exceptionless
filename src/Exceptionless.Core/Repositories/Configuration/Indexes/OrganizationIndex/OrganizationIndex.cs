@@ -6,7 +6,7 @@ namespace Exceptionless.Core.Repositories.Configuration {
     public sealed class OrganizationIndex : VersionedIndex {
         internal const string KEYWORD_LOWERCASE_ANALYZER = "keyword_lowercase";
 
-        public OrganizationIndex(IElasticConfiguration configuration) : base(configuration, Settings.Current.AppScopePrefix + "organizations", 1) {
+        public OrganizationIndex(IElasticConfiguration configuration) : base(configuration, AppConfiguration.Current.AppScopePrefix + "organizations", 1) {
             AddType(Organization = new OrganizationIndexType(this));
             AddType(Project = new ProjectIndexType(this));
             AddType(Token = new TokenIndexType(this));
@@ -17,8 +17,8 @@ namespace Exceptionless.Core.Repositories.Configuration {
         public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             return base.ConfigureIndex(idx.Settings(s => s
                 .Analysis(d => d.Analyzers(b => b.Custom(KEYWORD_LOWERCASE_ANALYZER, c => c.Filters("lowercase").Tokenizer("keyword"))))
-                .NumberOfShards(Settings.Current.ElasticsearchNumberOfShards)
-                .NumberOfReplicas(Settings.Current.ElasticsearchNumberOfReplicas)
+                .NumberOfShards(AppConfiguration.Current.ElasticsearchNumberOfShards)
+                .NumberOfReplicas(AppConfiguration.Current.ElasticsearchNumberOfReplicas)
                 .Priority(10)));
         }
 

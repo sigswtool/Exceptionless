@@ -4,8 +4,8 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Miscellaneous {
-    public class DeltaTests : TestBase {
-        public DeltaTests(ITestOutputHelper output) : base(output) {}
+    public class DeltaTests : TestWithServices {
+        public DeltaTests(ServicesFixture fixture) : base(fixture) {}
 
         [Fact]
         public void CanSetUnknownProperties() {

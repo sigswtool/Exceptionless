@@ -43,7 +43,7 @@ namespace Exceptionless.Web.Controllers {
         private readonly IOrganizationRepository _organizationRepository;
         private readonly IProjectRepository _projectRepository;
         private readonly IStackRepository _stackRepository;
-        private readonly EventPostService _eventPostService;
+        private readonly EventService _eventPostService;
         private readonly IQueue<EventUserDescription> _eventUserDescriptionQueue;
         private readonly IValidator<UserDescription> _userDescriptionValidator;
         private readonly FormattingPluginManager _formattingPluginManager;
@@ -54,7 +54,7 @@ namespace Exceptionless.Web.Controllers {
             IOrganizationRepository organizationRepository,
             IProjectRepository projectRepository,
             IStackRepository stackRepository,
-            EventPostService eventPostService,
+            EventService eventPostService,
             IQueue<EventUserDescription> eventUserDescriptionQueue,
             IValidator<UserDescription> userDescriptionValidator,
             FormattingPluginManager formattingPluginManager,
@@ -608,7 +608,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">No project was found.</response>
         [HttpGet("session/heartbeat")]
         public async Task<IActionResult> RecordHeartbeatAsync(string id = null, bool close = false) {
-            if (Settings.Current.EventSubmissionDisabled || String.IsNullOrEmpty(id))
+            if (Config.EventSubmissionDisabled || String.IsNullOrEmpty(id))
                 return Ok();
 
             string projectId = Request.GetDefaultProjectId();
@@ -623,7 +623,7 @@ namespace Exceptionless.Web.Controllers {
                     close ? _cache.SetAsync(String.Concat(heartbeatCacheKey, "-close"), true, TimeSpan.FromHours(2)) : Task.CompletedTask
                 );
             } catch (Exception ex) {
-                if (projectId != Settings.Current.InternalProjectId) {
+                if (projectId != Config.InternalProjectId) {
                     using (_logger.BeginScope(new ExceptionlessState().Project(projectId).Identity(CurrentUser?.EmailAddress).Property("User", CurrentUser).Property("Id", id).Property("Close", close).SetHttpContext(HttpContext)))
                         _logger.LogError(ex, "Error enqueuing session heartbeat.");
                 }
@@ -770,7 +770,7 @@ namespace Exceptionless.Web.Controllers {
                     UserAgent = userAgent
                 }, stream);
             } catch (Exception ex) {
-                if (projectId != Settings.Current.InternalProjectId) {
+                if (projectId != Config.InternalProjectId) {
                     using (_logger.BeginScope(new ExceptionlessState().Project(projectId).Identity(CurrentUser?.EmailAddress).Property("User", CurrentUser).SetHttpContext(HttpContext)))
                         _logger.LogError(ex, "Error enqueuing event post.");
                 }
@@ -887,7 +887,7 @@ namespace Exceptionless.Web.Controllers {
                     UserAgent = userAgent,
                 }, Request.Body);
             } catch (Exception ex) {
-                if (projectId != Settings.Current.InternalProjectId) {
+                if (projectId != Config.InternalProjectId) {
                     using (_logger.BeginScope(new ExceptionlessState().Project(projectId).Identity(CurrentUser?.EmailAddress).Property("User", CurrentUser).SetHttpContext(HttpContext)))
                         _logger.LogError(ex, "Error enqueuing event post.");
                 }

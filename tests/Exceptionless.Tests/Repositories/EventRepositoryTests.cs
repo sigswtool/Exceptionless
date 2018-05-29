@@ -20,7 +20,7 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class EventRepositoryTests : ElasticTestBase {
+    public sealed class EventRepositoryTests : TestWithElasticsearch {
         private readonly IEventRepository _repository;
         private readonly IStackRepository _stackRepository;
 
@@ -31,7 +31,7 @@ namespace Exceptionless.Tests.Repositories {
 
         [Fact (Skip = "https://github.com/elastic/elasticsearch-net/issues/2463")]
         public async Task GetAsync() {
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
             var ev = await _repository.AddAsync(new PersistentEvent {
                 CreatedUtc = SystemClock.UtcNow,
                 Date = new DateTimeOffset(SystemClock.UtcNow.Date, TimeSpan.Zero),

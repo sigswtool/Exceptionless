@@ -101,18 +101,21 @@ namespace Exceptionless.Web {
                 c.AddAutoVersioningSupport();
             });
 
-            Bootstrapper.RegisterServices(services, LoggerFactory);
+            var serviceProvider = services.BuildServiceProvider();
+            var config = serviceProvider.GetRequiredService<AppConfiguration>();
+            Bootstrapper.RegisterServices(services, config, LoggerFactory);
 
             services.AddSingleton(new ThrottlingOptions {
-                MaxRequestsForUserIdentifierFunc = userIdentifier => Settings.Current.ApiThrottleLimit,
+                MaxRequestsForUserIdentifierFunc = userIdentifier => AppConfiguration.Current.ApiThrottleLimit,
                 Period = TimeSpan.FromMinutes(15)
             });
         }
 
         public void Configure(IApplicationBuilder app, IHostingEnvironment env) {
             Core.Bootstrapper.LogConfiguration(app.ApplicationServices, LoggerFactory);
+            var config = app.ApplicationServices.GetRequiredService<AppConfiguration>();
 
-            if (!String.IsNullOrEmpty(Settings.Current.ExceptionlessApiKey) && !String.IsNullOrEmpty(Settings.Current.ExceptionlessServerUrl))
+            if (!String.IsNullOrEmpty(config.ExceptionlessApiKey) && !String.IsNullOrEmpty(config.ExceptionlessServerUrl))
                 app.UseExceptionless(ExceptionlessClient.Default);
 
             app.UseCsp(csp => {
@@ -145,7 +148,7 @@ namespace Exceptionless.Web {
             app.UseMiddleware<ProjectConfigMiddleware>();
             app.UseMiddleware<RecordSessionHeartbeatMiddleware>();
 
-            if (Settings.Current.ApiThrottleLimit < Int32.MaxValue) {
+            if (config.ApiThrottleLimit < Int32.MaxValue) {
                 // Throttle api calls to X every 15 minutes by IP address.
                 app.UseMiddleware<ThrottlingMiddleware>();
             }
@@ -164,13 +167,13 @@ namespace Exceptionless.Web {
                 s.InjectStylesheet("/docs.css");
             });
 
-            if (Settings.Current.EnableWebSockets) {
+            if (config.EnableWebSockets) {
                 app.UseWebSockets();
                 app.UseMiddleware<MessageBusBrokerMiddleware>();
             }
 
             // run startup actions registered in the container
-            if (Settings.Current.EnableBootstrapStartupActions) {
+            if (config.EnableBootstrapStartupActions) {
                 var lifetime = app.ApplicationServices.GetRequiredService<IApplicationLifetime>();
                 lifetime.ApplicationStarted.Register(() => {
                     var shutdownSource = new CancellationTokenSource();

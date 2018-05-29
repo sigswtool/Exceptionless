@@ -188,4 +188,9 @@ namespace Exceptionless.Core.Extensions {
     public interface IStartupAction {
         Task RunAsync(CancellationToken shutdownToken = default);
     }
+
+    public class LazyServiceProvider<T> : Lazy<T> where T : class {
+        public LazyServiceProvider(IServiceProvider provider)
+            : base(() => provider.GetRequiredService<T>()) { }
+    }
 }

@@ -9,12 +9,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Exceptionless.Web.Utility {
     public sealed class ProjectConfigMiddleware {
-        private readonly IProjectRepository _projectRepository;
+        private readonly Lazy<IProjectRepository> _projectRepository;
         private readonly ITextSerializer _serializer;
         private readonly ILogger _logger;
         private readonly RequestDelegate _next;
 
-        public ProjectConfigMiddleware(RequestDelegate next, IProjectRepository projectRepository, ITextSerializer serializer, ILogger<ProjectConfigMiddleware> logger) {
+        public ProjectConfigMiddleware(RequestDelegate next, Lazy<IProjectRepository> projectRepository, ITextSerializer serializer, ILogger<ProjectConfigMiddleware> logger) {
             _next = next;
             _projectRepository = projectRepository;
             _serializer = serializer;
@@ -43,7 +43,7 @@ namespace Exceptionless.Web.Utility {
                 return;
             }
 
-            var project = await _projectRepository.GetByIdAsync(projectId, o => o.Cache());
+            var project = await _projectRepository.Value.GetByIdAsync(projectId, o => o.Cache());
             if (project == null) {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;

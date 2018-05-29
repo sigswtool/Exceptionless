@@ -12,14 +12,14 @@ using Nest;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class ProjectRepositoryTests : ElasticTestBase {
+    public sealed class ProjectRepositoryTests : TestWithElasticsearch {
         private readonly ICacheClient _cache;
         private readonly IProjectRepository _repository;
 
         public ProjectRepositoryTests(ITestOutputHelper output) : base(output) {
             _cache = _configuration.Cache;
             _repository = GetService<IProjectRepository>();
-            Log.MinimumLevel = LogLevel.Trace;
+            TestLog.MinimumLevel = LogLevel.Trace;
         }
 
         [Fact]
@@ -61,7 +61,7 @@ namespace Exceptionless.Tests.Repositories {
             var project1 = await _repository.AddAsync(ProjectData.GenerateProject(id: TestConstants.ProjectId, organizationId: TestConstants.OrganizationId, name: "One"), o => o.ImmediateConsistency());
             var project2 = await _repository.AddAsync(ProjectData.GenerateProject(id: TestConstants.SuspendedProjectId, organizationId: TestConstants.OrganizationId, name: "Two"), o => o.ImmediateConsistency());
 
-            Log.SetLogLevel<ProjectRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<ProjectRepository>(LogLevel.Trace);
             var results = await _repository.GetByOrganizationIdsAsync(new[] { project1.OrganizationId, TestConstants.OrganizationId2 });
             Assert.NotNull(results);
             Assert.Equal(2, results.Documents.Count);

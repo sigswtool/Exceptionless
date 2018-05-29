@@ -25,10 +25,10 @@ namespace Exceptionless.Web.Security {
         public const string BasicScheme = "basic";
         public const string TokenScheme = "token";
 
-        private readonly ITokenRepository _tokenRepository;
-        private readonly IUserRepository _userRepository;
+        private readonly Lazy<ITokenRepository> _tokenRepository;
+        private readonly Lazy<IUserRepository> _userRepository;
 
-        public ApiKeyAuthenticationHandler(ITokenRepository tokenRepository, IUserRepository userRepository, IOptionsMonitor<ApiKeyAuthenticationOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock) : base(options, logger, encoder, clock) {
+        public ApiKeyAuthenticationHandler(Lazy<ITokenRepository> tokenRepository, Lazy<IUserRepository> userRepository, IOptionsMonitor<ApiKeyAuthenticationOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock) : base(options, logger, encoder, clock) {
             _tokenRepository = tokenRepository;
             _userRepository = userRepository;
         }
@@ -53,7 +53,7 @@ namespace Exceptionless.Web.Security {
                     else {
                         User user;
                         try {
-                            user = await _userRepository.GetByEmailAddressAsync(authInfo.Username);
+                            user = await _userRepository.Value.GetByEmailAddressAsync(authInfo.Username);
                         } catch (Exception ex) {
                             return AuthenticateResult.Fail(ex);
                         }
@@ -83,7 +83,7 @@ namespace Exceptionless.Web.Security {
             if (String.IsNullOrEmpty(token))
                 return AuthenticateResult.NoResult();
 
-            var tokenRecord = await _tokenRepository.GetByIdAsync(token, o => o.Cache());
+            var tokenRecord = await _tokenRepository.Value.GetByIdAsync(token, o => o.Cache());
             if (tokenRecord == null) {
                 using (Logger.BeginScope(new ExceptionlessState().Property("Headers", Request.Headers)))
                     Logger.LogWarning("Token {Token} for {Path} not found.", token, Request.Path);
@@ -99,7 +99,7 @@ namespace Exceptionless.Web.Security {
             }
 
             if (!String.IsNullOrEmpty(tokenRecord.UserId)) {
-                var user = await _userRepository.GetByIdAsync(tokenRecord.UserId, o => o.Cache());
+                var user = await _userRepository.Value.GetByIdAsync(tokenRecord.UserId, o => o.Cache());
                 if (user == null) {
                     using (Logger.BeginScope(new ExceptionlessState().Property("Headers", Request.Headers)))
                         Logger.LogWarning("Could not find user for token {Token} with user {user} for {Path}.", token, tokenRecord.UserId, Request.Path);

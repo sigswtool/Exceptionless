@@ -9,7 +9,7 @@ using Newtonsoft.Json.Converters;
 using Stripe;
 
 namespace Exceptionless.Core {
-    public class Settings {
+    public class AppConfiguration {
         public string BaseURL { get; private set; }
 
         /// <summary>
@@ -170,10 +170,8 @@ namespace Exceptionless.Core {
 
         public string SmtpPassword { get; private set; }
 
-        public static Settings Current { get; private set; }
-
-        public static void Initialize(IConfiguration configRoot, string environment) {
-            var settings = new Settings();
+        public static AppConfiguration Load(IConfiguration configRoot, string environment) {
+            var settings = new AppConfiguration();
 
             settings.BaseURL = configRoot.GetValue<string>(nameof(BaseURL))?.TrimEnd('/');
             settings.InternalProjectId = configRoot.GetValue(nameof(InternalProjectId), "54b56e480ef9605a88a13153");
@@ -258,12 +256,12 @@ namespace Exceptionless.Core {
             settings.EnableActiveDirectoryAuth = configRoot.GetValue(nameof(EnableActiveDirectoryAuth), !String.IsNullOrEmpty(settings.LdapConnectionString));
 
             try {
-                var versionInfo = FileVersionInfo.GetVersionInfo(typeof(Settings).Assembly.Location);
+                var versionInfo = FileVersionInfo.GetVersionInfo(typeof(AppConfiguration).Assembly.Location);
                 settings.Version = versionInfo.FileVersion;
                 settings.InformationalVersion = versionInfo.ProductVersion;
             } catch { }
 
-            Current = settings;
+            return settings;
         }
 
         private SmtpEncryption GetDefaultSmtpEncryption(int port) {

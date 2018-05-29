@@ -20,7 +20,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Jobs {
-    public class EventPostJobTests : ElasticTestBase {
+    public class EventPostJobTests : TestWithElasticsearch {
         private readonly EventPostsJob _job;
         private readonly IFileStorage _storage;
         private readonly IOrganizationRepository _organizationRepository;
@@ -29,18 +29,20 @@ namespace Exceptionless.Tests.Jobs {
         private readonly IQueue<EventPost> _queue;
         private readonly IUserRepository _userRepository;
         private readonly JsonSerializerSettings _jsonSerializerSettings;
-        private readonly EventPostService _eventPostService;
+        private readonly EventService _eventPostService;
+        private readonly BillingManager _billingManager; 
 
-        public EventPostJobTests(ITestOutputHelper output) : base(output) {
+        public EventPostJobTests(TestServerFixture fixture) : base(fixture) {
             _job = GetService<EventPostsJob>();
             _queue = GetService <IQueue<EventPost>>();
             _storage = GetService<IFileStorage>();
-            _eventPostService = new EventPostService(_queue, _storage, Log);
+            _eventPostService = new EventService(_queue, _storage, TestLog);
             _organizationRepository = GetService<IOrganizationRepository>();
             _projectRepository = GetService<IProjectRepository>();
             _eventRepository = GetService<IEventRepository>();
             _userRepository = GetService<IUserRepository>();
             _jsonSerializerSettings = GetService<JsonSerializerSettings>();
+            _billingManager = GetService<BillingManager>();
 
             CreateDataAsync().GetAwaiter().GetResult();
         }
@@ -106,9 +108,9 @@ namespace Exceptionless.Tests.Jobs {
         private async Task CreateDataAsync() {
             foreach (var organization in OrganizationData.GenerateSampleOrganizations()) {
                 if (organization.Id == TestConstants.OrganizationId3)
-                    BillingManager.ApplyBillingPlan(organization, BillingManager.FreePlan, UserData.GenerateSampleUser());
+                    _billingManager.ApplyBillingPlan(organization, _billingManager.FreePlan, UserData.GenerateSampleUser());
                 else
-                    BillingManager.ApplyBillingPlan(organization, BillingManager.SmallPlan, UserData.GenerateSampleUser());
+                    _billingManager.ApplyBillingPlan(organization, _billingManager.SmallPlan, UserData.GenerateSampleUser());
 
                 organization.StripeCustomerId = Guid.NewGuid().ToString("N");
                 organization.CardLast4 = "1234";

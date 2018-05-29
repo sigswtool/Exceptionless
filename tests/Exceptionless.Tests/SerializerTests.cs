@@ -10,8 +10,8 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests {
-    public class SerializerTests : TestBase {
-        public SerializerTests(ITestOutputHelper output) : base(output) {}
+    public class SerializerTests : TestWithServices {
+        public SerializerTests(ServicesFixture fixture) : base(fixture) {}
 
         [Fact]
         public void CanDeserializeEventWithUnknownNamesAndProperties() {

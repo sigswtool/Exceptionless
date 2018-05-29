@@ -9,10 +9,11 @@ using LogLevel = Exceptionless.Logging.LogLevel;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.Exceptionless;
+using System.Threading;
 
 namespace Exceptionless.Insulation.Jobs {
     public class JobServiceProvider {
-        public static IServiceProvider GetServiceProvider() {
+        public static IServiceProvider GetServiceProvider(CancellationToken cancellationToken = default) {
             AppDomain.CurrentDomain.SetDataDirectory();
 
             string environment = Environment.GetEnvironmentVariable("AppMode");
@@ -27,41 +28,42 @@ namespace Exceptionless.Insulation.Jobs {
                 .AddEnvironmentVariables()
                 .Build();
 
-            Settings.Initialize(config, environment);
-            Settings.Current.DisableIndexConfiguration = true;
+            var appConfig = AppConfiguration.Load(config, environment);
+            appConfig.DisableIndexConfiguration = true;
 
             var loggerConfig = new LoggerConfiguration().ReadFrom.Configuration(config);
 
-            if (!String.IsNullOrEmpty(Settings.Current.ExceptionlessApiKey) && !String.IsNullOrEmpty(Settings.Current.ExceptionlessServerUrl)) {
+            if (!String.IsNullOrEmpty(appConfig.ExceptionlessApiKey) && !String.IsNullOrEmpty(appConfig.ExceptionlessServerUrl)) {
                 var client = ExceptionlessClient.Default;
                 client.Configuration.SetDefaultMinLogLevel(LogLevel.Warn);
                 client.Configuration.UseLogger(new SelfLogLogger());
-                client.Configuration.SetVersion(Settings.Current.Version);
+                client.Configuration.SetVersion(appConfig.Version);
                 client.Configuration.UseInMemoryStorage();
 
-                if (String.IsNullOrEmpty(Settings.Current.InternalProjectId))
+                if (String.IsNullOrEmpty(appConfig.InternalProjectId))
                     client.Configuration.Enabled = false;
 
-                client.Configuration.ServerUrl = Settings.Current.ExceptionlessServerUrl;
-                client.Startup(Settings.Current.ExceptionlessApiKey);
+                client.Configuration.ServerUrl = appConfig.ExceptionlessServerUrl;
+                client.Startup(appConfig.ExceptionlessApiKey);
 
                 loggerConfig.WriteTo.Sink(new ExceptionlessSink(), LogEventLevel.Verbose);
             }
 
             Log.Logger = loggerConfig.CreateLogger();
-            Log.Information("Bootstrapping {AppMode} mode job ({InformationalVersion}) on {MachineName} using {@Settings} loaded from {Folder}", environment, Settings.Current.InformationalVersion, Environment.MachineName, Settings.Current, currentDirectory);
+            Log.Information("Bootstrapping {AppMode} mode job ({InformationalVersion}) on {MachineName} using {@Settings} loaded from {Folder}", environment, appConfig.InformationalVersion, Environment.MachineName, appConfig, currentDirectory);
 
             var services = new ServiceCollection();
             services.AddLogging(b => b.AddSerilog(Log.Logger));
             services.AddSingleton<IConfiguration>(config);
+            services.AddSingleton<AppConfiguration>(appConfig);
             Core.Bootstrapper.RegisterServices(services);
             Bootstrapper.RegisterServices(services, true);
 
             var container = services.BuildServiceProvider();
 
             Core.Bootstrapper.LogConfiguration(container, container.GetRequiredService<ILoggerFactory>());
-            if (Settings.Current.EnableBootstrapStartupActions)
-                container.RunStartupActionsAsync().GetAwaiter().GetResult();
+            if (appConfig.EnableBootstrapStartupActions)
+                container.RunStartupActionsAsync(cancellationToken).GetAwaiter().GetResult();
 
             return container;
         }

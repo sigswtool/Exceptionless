@@ -4,8 +4,8 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Extensions {
-    public class StringExtensionsTests : TestBase {
-        public StringExtensionsTests(ITestOutputHelper output) : base(output) { }
+    public class StringExtensionsTests : TestWithServices {
+        public StringExtensionsTests(ServicesFixture fixture) : base(fixture) { }
 
         [Fact]
         public void ToAddress() {

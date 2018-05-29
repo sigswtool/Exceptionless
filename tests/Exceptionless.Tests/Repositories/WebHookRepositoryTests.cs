@@ -9,7 +9,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class WebHookRepositoryTests : ElasticTestBase {
+    public sealed class WebHookRepositoryTests : TestWithElasticsearch {
         private readonly IWebHookRepository _repository;
 
         public WebHookRepositoryTests(ITestOutputHelper output) : base(output) {

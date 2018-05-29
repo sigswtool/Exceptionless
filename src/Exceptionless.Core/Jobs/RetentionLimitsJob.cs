@@ -1,12 +1,10 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Exceptionless.Core.Billing;
 using Exceptionless.Core.Extensions;
-using Exceptionless.Core.Repositories;
 using Exceptionless.Core.Models;
+using Exceptionless.Core.Repositories;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Repositories;
@@ -16,14 +14,14 @@ using Microsoft.Extensions.Logging;
 namespace Exceptionless.Core.Jobs {
     [Job(Description = "Deletes old events that are outside of a plans retention period.", InitialDelay = "15m", Interval = "1h")]
     public class RetentionLimitsJob : JobWithLockBase {
-        private readonly IOrganizationRepository _organizationRepository;
-        private readonly IEventRepository _eventRepository;
         private readonly ILockProvider _lockProvider;
+        private readonly IAppService _app;
+        private readonly IDatabase _db;
 
-        public RetentionLimitsJob(IOrganizationRepository organizationRepository, IEventRepository eventRepository, ICacheClient cacheClient, ILoggerFactory loggerFactory = null) : base(loggerFactory) {
-            _organizationRepository = organizationRepository;
-            _eventRepository = eventRepository;
-            _lockProvider = new ThrottlingLockProvider(cacheClient, 1, TimeSpan.FromDays(1));
+        public RetentionLimitsJob(IAppService app, IDatabase database) : base(app.LoggerFactory) {
+            _app = app;
+            _db = database;
+            _lockProvider = new ThrottlingLockProvider(app.Cache, 1, TimeSpan.FromDays(1));
         }
 
         protected override Task<ILock> GetLockAsync(CancellationToken cancellationToken = default) {
@@ -31,7 +29,7 @@ namespace Exceptionless.Core.Jobs {
         }
 
         protected override async Task<JobResult> RunInternalAsync(JobContext context) {
-            var results = await _organizationRepository.GetByRetentionDaysEnabledAsync(o => o.SnapshotPaging().PageLimit(100)).AnyContext();
+            var results = await _db.Organizations.GetByRetentionDaysEnabledAsync(o => o.SnapshotPaging().PageLimit(100)).AnyContext();
             while (results.Documents.Count > 0 && !context.CancellationToken.IsCancellationRequested) {
                 foreach (var organization in results.Documents) {
                     using (_logger.BeginScope(new ExceptionlessState().Organization(organization.Id))) {
@@ -57,11 +55,11 @@ namespace Exceptionless.Core.Jobs {
 
             try {
                 int retentionDays = organization.RetentionDays;
-                if (Settings.Current.MaximumRetentionDays > 0 && retentionDays > Settings.Current.MaximumRetentionDays)
-                    retentionDays = Settings.Current.MaximumRetentionDays;
+                if (_app.Config.MaximumRetentionDays > 0 && retentionDays > _app.Config.MaximumRetentionDays)
+                    retentionDays = _app.Config.MaximumRetentionDays;
 
                 var cutoff = SystemClock.UtcNow.Date.SubtractDays(retentionDays);
-                await _eventRepository.RemoveAllByDateAsync(organization.Id, cutoff).AnyContext();
+                await _db.Events.RemoveAllByDateAsync(organization.Id, cutoff).AnyContext();
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error enforcing limits: org={OrganizationName} id={organization} message={Message}", organization.Name, organization.Id, ex.Message);
             }

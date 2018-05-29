@@ -12,15 +12,15 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Validation {
-    public class EventValidatorTests : TestBase {
+    public class EventValidatorTests : TestWithServices {
         private readonly PersistentEvent _benchmarkEvent;
         private readonly PersistentEventValidator _validator;
 
-        public EventValidatorTests(ITestOutputHelper output) : base(output) {
+        public EventValidatorTests(ServicesFixture fixture) : base(fixture) {
             _validator = new PersistentEventValidator();
 
             string path = Path.Combine("..", "..", "..", "Search", "Data", "event1.json");
-            var parserPluginManager = GetService<EventParserPluginManager>();
+            var parserPluginManager = GetService<EventParser>();
             var events = parserPluginManager.ParseEvents(File.ReadAllText(path), 2, "exceptionless/2.0.0.0");
             _benchmarkEvent = events.First();
         }

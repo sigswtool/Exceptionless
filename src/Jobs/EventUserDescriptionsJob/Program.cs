@@ -14,8 +14,9 @@ namespace EventUserDescriptionsJob {
             IServiceProvider serviceProvider = null;
             try {
                 serviceProvider = JobServiceProvider.GetServiceProvider();
+                var config = serviceProvider.GetRequiredService<AppConfiguration>();
                 var job = serviceProvider.GetService<Exceptionless.Core.Jobs.EventUserDescriptionsJob>();
-                return await new JobRunner(job, serviceProvider.GetRequiredService<ILoggerFactory>(), initialDelay: TimeSpan.FromSeconds(3), interval: TimeSpan.Zero, iterationLimit: Settings.Current.JobsIterationLimit).RunInConsoleAsync();
+                return await new JobRunner(job, serviceProvider.GetRequiredService<ILoggerFactory>(), initialDelay: TimeSpan.FromSeconds(3), interval: TimeSpan.Zero, iterationLimit: config.JobsIterationLimit).RunInConsoleAsync();
             } catch (Exception ex) {
                 Log.Fatal(ex, "Job terminated unexpectedly");
                 return 1;

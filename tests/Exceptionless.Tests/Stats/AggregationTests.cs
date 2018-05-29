@@ -18,7 +18,7 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Stats {
-    public sealed class AggregationTests : ElasticTestBase {
+    public sealed class AggregationTests : TestWithElasticsearch {
         private readonly EventPipeline _pipeline;
         private readonly IEventRepository _eventRepository;
         private readonly IStackRepository _stackRepository;
@@ -39,7 +39,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetCardinalityAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             var result = await _eventRepository.CountBySearchAsync(null, $"project:{TestConstants.ProjectId}", "cardinality:stack_id cardinality:id");
             Assert.Equal(eventCount, result.Total);
@@ -51,7 +51,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetDateHistogramWithCardinalityAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             var result = await _eventRepository.CountBySearchAsync(null, $"project:{TestConstants.ProjectId}", "date:(date cardinality:id) cardinality:id");
             Assert.Equal(eventCount, result.Total);
@@ -72,7 +72,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetExcludedTermsAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             var result = await _eventRepository.CountBySearchAsync(null, $"project:{TestConstants.ProjectId}", "terms:(is_first_occurrence @include:true)");
             Assert.Equal(eventCount, result.Total);
@@ -89,7 +89,7 @@ namespace Exceptionless.Tests.Stats {
             foreach (var value in values)
                 await CreateEventsAsync(1, null, value);
 
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
             var result = await _eventRepository.CountBySearchAsync(null, $"project:{TestConstants.ProjectId}", "avg:value~0 cardinality:value~0 sum:value~0 min:value~0 max:value~0");
 
             Assert.Equal(values.Length, result.Total);
@@ -105,7 +105,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetTagTermAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             var result = await _eventRepository.CountBySearchAsync(null, null, "terms:tags");
             Assert.Equal(eventCount, result.Total);
@@ -120,7 +120,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetVersionTermAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             var result = await _eventRepository.CountBySearchAsync(null, null, "terms:version");
             Assert.Equal(eventCount, result.Total);
@@ -132,7 +132,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetStackIdTermAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             long stackSize = await _stackRepository.CountAsync();
             var result = await _eventRepository.CountBySearchAsync(null, null, $"terms:(stack_id terms:(is_first_occurrence~{stackSize} @include:true))");
@@ -149,7 +149,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetStackIdTermMinMaxAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount, false);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             long stackSize = await _stackRepository.CountAsync();
             var result = await _eventRepository.CountBySearchAsync(null, null, $"terms:(stack_id~{stackSize} min:date max:date)");
@@ -172,7 +172,7 @@ namespace Exceptionless.Tests.Stats {
         public async Task CanGetProjectTermAggregationsAsync() {
             const int eventCount = 100;
             await CreateDataAsync(eventCount);
-            Log.SetLogLevel<EventRepository>(LogLevel.Trace);
+            TestLog.SetLogLevel<EventRepository>(LogLevel.Trace);
 
             var result = await _eventRepository.CountBySearchAsync(null, null, "terms:project_id");
             Assert.Equal(eventCount, result.Total);

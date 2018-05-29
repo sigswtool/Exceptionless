@@ -13,14 +13,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Exceptionless.Web.Utility {
     public sealed class OverageMiddleware {
-        private readonly IOrganizationRepository _organizationRepository;
-        private readonly IProjectRepository _projectRepository;
+        private readonly Lazy<IOrganizationRepository> _organizationRepository;
+        private readonly Lazy<IProjectRepository> _projectRepository;
         private readonly UsageService _usageService;
         private readonly IMetricsClient _metricsClient;
         private readonly ILogger _logger;
         private readonly RequestDelegate _next;
 
-        public OverageMiddleware(RequestDelegate next, IOrganizationRepository organizationRepository, IProjectRepository projectRepository, UsageService usageService, IMetricsClient metricsClient, ILogger<OverageMiddleware> logger) {
+        public OverageMiddleware(RequestDelegate next, Lazy<IOrganizationRepository> organizationRepository, Lazy<IProjectRepository> projectRepository, UsageService usageService, IMetricsClient metricsClient, ILogger<OverageMiddleware> logger) {
             _next = next;
             _organizationRepository = organizationRepository;
             _projectRepository = projectRepository;
@@ -51,16 +51,16 @@ namespace Exceptionless.Web.Utility {
                 return;
             }
 
-            if (Settings.Current.EventSubmissionDisabled) {
+            if (AppConfiguration.Current.EventSubmissionDisabled) {
                 context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 return;
             }
 
             string organizationId = context.Request.GetDefaultOrganizationId();
-            var organizationTask = _organizationRepository.GetByIdAsync(organizationId, o => o.Cache());
+            var organizationTask = _organizationRepository.Value.GetByIdAsync(organizationId, o => o.Cache());
 
             string projectId = context.Request.GetDefaultProjectId();
-            var projectTask = _projectRepository.GetByIdAsync(projectId, o => o.Cache());
+            var projectTask = _projectRepository.Value.GetByIdAsync(projectId, o => o.Cache());
 
             bool tooBig = false;
             if (String.Equals(context.Request.Method, "POST", StringComparison.OrdinalIgnoreCase) && context.Request.Headers != null) {
@@ -75,7 +75,7 @@ namespace Exceptionless.Web.Utility {
                 if (size > 0)
                     _metricsClient.Gauge(MetricNames.PostsSize, size);
 
-                if (size > Settings.Current.MaximumEventPostSize) {
+                if (size > AppConfiguration.Current.MaximumEventPostSize) {
                     if (_logger.IsEnabled(LogLevel.Warning)) {
                         using (_logger.BeginScope(new ExceptionlessState().Value(size).Tag(context.Request.Headers.TryGetAndReturn(Headers.ContentEncoding))))
                             _logger.LogWarning("Event submission discarded for being too large: {@value} bytes.", size);

@@ -13,6 +13,8 @@ using Exceptionless.Web.Utility.Results;
 using Foundatio.Repositories;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Exceptionless.Core;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Exceptionless.Web.Controllers {
   [ApiController]
@@ -25,6 +27,16 @@ namespace Exceptionless.Web.Controllers {
 
         public ExceptionlessApiController() {
             AllowedDateFields = new List<string>();
+        }
+
+        private AppConfiguration _config = null;
+        public AppConfiguration Config {
+            get {
+                if (_config == null)
+                    _config = HttpContext.RequestServices.GetRequiredService<AppConfiguration>();
+
+                return _config;
+            }
         }
 
         protected TimeSpan GetOffset(string offset) {

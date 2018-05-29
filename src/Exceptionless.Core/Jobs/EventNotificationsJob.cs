@@ -29,8 +29,9 @@ namespace Exceptionless.Core.Jobs {
         private readonly IEventRepository _eventRepository;
         private readonly ICacheClient _cache;
         private readonly UserAgentParser _parser;
+        private readonly AppConfiguration _config;
 
-        public EventNotificationsJob(IQueue<EventNotificationWorkItem> queue, SlackService slackService, IMailer mailer, IProjectRepository projectRepository, IUserRepository userRepository, IEventRepository eventRepository, ICacheClient cacheClient, UserAgentParser parser, ILoggerFactory loggerFactory = null) : base(queue, loggerFactory) {
+        public EventNotificationsJob(IQueue<EventNotificationWorkItem> queue, SlackService slackService, IMailer mailer, IProjectRepository projectRepository, IUserRepository userRepository, IEventRepository eventRepository, ICacheClient cacheClient, UserAgentParser parser, AppConfiguration config, ILoggerFactory loggerFactory = null) : base(queue, loggerFactory) {
             _slackService = slackService;
             _mailer = mailer;
             _projectRepository = projectRepository;
@@ -38,6 +39,7 @@ namespace Exceptionless.Core.Jobs {
             _eventRepository = eventRepository;
             _cache = cacheClient;
             _parser = parser;
+            _config = config;
         }
 
         protected override async Task<JobResult> ProcessQueueEntryAsync(QueueEntryContext<EventNotificationWorkItem> context) {
@@ -46,7 +48,7 @@ namespace Exceptionless.Core.Jobs {
             if (ev == null || ev.IsDeleted)
                 return JobResult.SuccessWithMessage($"Could not load event: {wi.EventId}");
 
-            bool shouldLog = ev.ProjectId != Settings.Current.InternalProjectId;
+            bool shouldLog = ev.ProjectId != _config.InternalProjectId;
             int sent = 0;
             if (shouldLog) _logger.LogTrace("Process notification: project={project} event={id} stack={stack}", ev.ProjectId, ev.Id, ev.StackId);
 
@@ -156,7 +158,7 @@ namespace Exceptionless.Core.Jobs {
             if (shouldLog) _logger.LogTrace("Loaded user: email={EmailAddress}", user.EmailAddress);
 
             // don't send notifications in non-production mode to email addresses that are not on the outbound email list.
-            if (Settings.Current.AppMode != AppMode.Production && !Settings.Current.AllowedOutboundAddresses.Contains(v => user.EmailAddress.ToLowerInvariant().Contains(v))) {
+            if (_config.AppMode != AppMode.Production && !_config.AllowedOutboundAddresses.Contains(v => user.EmailAddress.ToLowerInvariant().Contains(v))) {
                 if (shouldLog) _logger.LogInformation("Skipping because email is not on the outbound list and not in production mode.");
                 return false;
             }

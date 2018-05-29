@@ -10,10 +10,10 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Plugins {
-    public class SummaryDataTests : TestBase {
+    public class SummaryDataTests : TestWithServices {
         private readonly FormattingPluginManager _formatter;
 
-        public SummaryDataTests(ITestOutputHelper output) : base(output) {
+        public SummaryDataTests(ServicesFixture fixture) : base(fixture) {
             _formatter = GetService<FormattingPluginManager>();
         }
 

@@ -29,21 +29,23 @@ using DataDictionary = Exceptionless.Core.Models.DataDictionary;
 using Nest;
 
 namespace Exceptionless.Tests.Pipeline {
-    public sealed class EventPipelineTests : ElasticTestBase {
+    public sealed class EventPipelineTests : TestWithElasticsearch {
         private readonly EventPipeline _pipeline;
         private readonly IEventRepository _eventRepository;
         private readonly IStackRepository _stackRepository;
         private readonly IOrganizationRepository _organizationRepository;
         private readonly IProjectRepository _projectRepository;
         private readonly IUserRepository _userRepository;
+        private readonly BillingManager _billingManager;
 
-        public EventPipelineTests(ITestOutputHelper output) : base(output) {
+        public EventPipelineTests(TestServerFixture fixture) : base(fixture) {
             _eventRepository = GetService<IEventRepository>();
             _stackRepository = GetService<IStackRepository>();
             _organizationRepository = GetService<IOrganizationRepository>();
             _projectRepository = GetService<IProjectRepository>();
             _userRepository = GetService<IUserRepository>();
             _pipeline = GetService<EventPipeline>();
+            _billingManager = GetService<BillingManager>();
 
             CreateProjectDataAsync().GetAwaiter().GetResult();
         }
@@ -795,7 +797,7 @@ namespace Exceptionless.Tests.Pipeline {
         [MemberData(nameof(Events))]
         public async Task ProcessEventsAsync(string errorFilePath) {
             var pipeline = GetService<EventPipeline>();
-            var parserPluginManager = GetService<EventParserPluginManager>();
+            var parserPluginManager = GetService<EventParser>();
             var events = parserPluginManager.ParseEvents(File.ReadAllText(errorFilePath), 2, "exceptionless/2.0.0.0");
             Assert.NotNull(events);
             Assert.True(events.Count > 0);
@@ -814,7 +816,7 @@ namespace Exceptionless.Tests.Pipeline {
 
         [Fact]
         public async Task PipelinePerformanceAsync() {
-            var parserPluginManager = GetService<EventParserPluginManager>();
+            var parserPluginManager = GetService<EventParser>();
             var pipeline = GetService<EventPipeline>();
             var startDate = SystemClock.OffsetNow.SubtractHours(1);
             int totalBatches = 0;
@@ -853,7 +855,7 @@ namespace Exceptionless.Tests.Pipeline {
         [Fact(Skip = "Used to create performance data from the queue directory")]
         public async Task GeneratePerformanceDataAsync() {
             int currentBatchCount = 0;
-            var parserPluginManager = GetService<EventParserPluginManager>();
+            var parserPluginManager = GetService<EventParser>();
             string dataDirectory = Path.GetFullPath(Path.Combine("..", "..", "..", "Pipeline", "Data"));
 
             foreach (string file in Directory.GetFiles(dataDirectory))
@@ -863,7 +865,7 @@ namespace Exceptionless.Tests.Pipeline {
             var mappedIPs = new Dictionary<string, string>();
             var storage = new FolderFileStorage(new FolderFileStorageOptions {
                 Folder = Path.GetFullPath(Path.Combine("..", "..", "..", "src")),
-                LoggerFactory = Log
+                LoggerFactory = TestLog
             });
 
             foreach (var file in await storage.GetFileListAsync(Path.Combine("Exceptionless.Web", "storage", "q", "*"))) {
@@ -953,9 +955,9 @@ namespace Exceptionless.Tests.Pipeline {
         private async Task CreateProjectDataAsync() {
             foreach (var organization in OrganizationData.GenerateSampleOrganizations()) {
                 if (organization.Id == TestConstants.OrganizationId3)
-                    BillingManager.ApplyBillingPlan(organization, BillingManager.FreePlan, UserData.GenerateSampleUser());
+                    _billingManager.ApplyBillingPlan(organization, _billingManager.FreePlan, UserData.GenerateSampleUser());
                 else
-                    BillingManager.ApplyBillingPlan(organization, BillingManager.SmallPlan, UserData.GenerateSampleUser());
+                    _billingManager.ApplyBillingPlan(organization, _billingManager.SmallPlan, UserData.GenerateSampleUser());
 
                 organization.StripeCustomerId = Guid.NewGuid().ToString("N");
                 organization.CardLast4 = "1234";

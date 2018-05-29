@@ -25,7 +25,7 @@ using Xunit.Abstractions;
 using Run = Exceptionless.Tests.Utility.Run;
 
 namespace Exceptionless.Tests.Controllers {
-    public class EventControllerTests : IntegrationTestsBase {
+    public class EventControllerTests : TestWithServer {
         private readonly IEventRepository _eventRepository;
         private readonly IQueue<EventPost> _eventQueue;
         private readonly IQueue<EventUserDescription> _eventUserDescriptionQueue;
@@ -33,7 +33,7 @@ namespace Exceptionless.Tests.Controllers {
         private readonly IProjectRepository _projectRepository;
         private readonly ITokenRepository _tokenRepository;
 
-        public EventControllerTests(ITestOutputHelper output) : base(output) {
+        public EventControllerTests(TestServerFixture fixture) : base(fixture) {
             _organizationRepository = GetService<IOrganizationRepository>();
             _projectRepository = GetService<IProjectRepository>();
             _tokenRepository = GetService<ITokenRepository>();

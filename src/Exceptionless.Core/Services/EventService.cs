@@ -3,6 +3,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.Core.Extensions;
+using Exceptionless.Core.Pipeline;
+using Exceptionless.Core.Plugins.EventParser;
 using Exceptionless.Core.Queues.Models;
 using Foundatio.Queues;
 using Foundatio.Storage;
@@ -10,16 +12,23 @@ using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 
 namespace Exceptionless.Core.Services {
-    public class EventPostService {
-        private readonly IQueue<EventPost> _queue;
+    public class EventService {
         private readonly IFileStorage _storage;
         private readonly ILogger _logger;
 
-        public EventPostService(IQueue<EventPost> queue, IFileStorage storage, ILoggerFactory loggerFactory) {
-            _queue = queue;
+        public EventService(IQueue<EventPost> queue, EventPipeline eventPipeline, IFileStorage storage, EventParser eventParser, UsageService usageService, ILoggerFactory loggerFactory) {
+            Queue = queue;
+            Pipeline = eventPipeline;
             _storage = storage;
-            _logger = loggerFactory.CreateLogger<EventPostService>();
+            _logger = loggerFactory.CreateLogger<EventService>();
+            Parser = eventParser;
+            Usage = usageService;
         }
+
+        public EventPipeline Pipeline { get; }
+        public EventParser Parser { get; }
+        public UsageService Usage { get; }
+        public IQueue<EventPost> Queue { get; }
 
         public async Task<string> EnqueueAsync(EventPost data, Stream stream, CancellationToken cancellationToken = default) {
             if (stream == null)
@@ -50,7 +59,7 @@ namespace Exceptionless.Core.Services {
                 return null;
             }
 
-            return await _queue.EnqueueAsync(data).AnyContext();
+            return await Queue.EnqueueAsync(data).AnyContext();
         }
 
         public async Task<byte[]> GetEventPostPayloadAsync(string path, CancellationToken cancellationToken = default) {

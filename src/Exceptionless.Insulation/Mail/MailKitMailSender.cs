@@ -11,6 +11,12 @@ using MailMessage = Exceptionless.Core.Queues.Models.MailMessage;
 
 namespace Exceptionless.Insulation.Mail {
     public class MailKitMailSender : IMailSender {
+        private readonly IAppService _app;
+
+        public MailKitMailSender(IAppService app) {
+            _app = app;
+        }
+
         public async Task SendAsync(MailMessage model) {
             var message = CreateMailMessage(model);
             message.Headers.Add("X-Mailer-Machine", Environment.MachineName);
@@ -21,13 +27,13 @@ namespace Exceptionless.Insulation.Mail {
             using (var client = new SmtpClient()) {
                 client.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-                await client.ConnectAsync(Settings.Current.SmtpHost, Settings.Current.SmtpPort, GetSecureSocketOption(Settings.Current.SmtpEncryption)).AnyContext();
+                await client.ConnectAsync(_app.Config.SmtpHost, _app.Config.SmtpPort, GetSecureSocketOption(_app.Config.SmtpEncryption)).AnyContext();
 
                 // Note: since we don't have an OAuth2 token, disable the XOAUTH2 authentication mechanism.
                 client.AuthenticationMechanisms.Remove("XOAUTH2");
 
-                if (!String.IsNullOrEmpty(Settings.Current.SmtpUser))
-                    await client.AuthenticateAsync(Settings.Current.SmtpUser, Settings.Current.SmtpPassword).AnyContext();
+                if (!String.IsNullOrEmpty(_app.Config.SmtpUser))
+                    await client.AuthenticateAsync(_app.Config.SmtpUser, _app.Config.SmtpPassword).AnyContext();
 
                 await client.SendAsync(message).AnyContext();
                 await client.DisconnectAsync(true).AnyContext();
@@ -55,7 +61,7 @@ namespace Exceptionless.Insulation.Mail {
             if (!String.IsNullOrEmpty(notification.From))
                 message.From.AddRange(InternetAddressList.Parse(notification.From));
             else
-                message.From.AddRange(InternetAddressList.Parse(Settings.Current.SmtpFrom));
+                message.From.AddRange(InternetAddressList.Parse(AppConfiguration.Current.SmtpFrom));
 
             if (!String.IsNullOrEmpty(notification.Body))
                 builder.HtmlBody = notification.Body;

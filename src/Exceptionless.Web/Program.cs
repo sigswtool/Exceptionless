@@ -38,22 +38,22 @@ namespace Exceptionless.Web {
                 .AddCommandLine(args)
                 .Build();
 
-            Settings.Initialize(config, environment);
+            AppConfiguration.Load(config, environment);
 
             var loggerConfig = new LoggerConfiguration().ReadFrom.Configuration(config);
-            if (!String.IsNullOrEmpty(Settings.Current.ExceptionlessApiKey))
+            if (!String.IsNullOrEmpty(AppConfiguration.Current.ExceptionlessApiKey))
                 loggerConfig.WriteTo.Sink(new ExceptionlessSink(), LogEventLevel.Verbose);
 
             Log.Logger = loggerConfig.CreateLogger();
 
-            Log.Information("Bootstrapping {AppMode} mode API ({InformationalVersion}) on {MachineName} using {@Settings} loaded from {Folder}", environment, Settings.Current.InformationalVersion, Environment.MachineName, Settings.Current, currentDirectory);
+            Log.Information("Bootstrapping {AppMode} mode API ({InformationalVersion}) on {MachineName} using {@Settings} loaded from {Folder}", environment, AppConfiguration.Current.InformationalVersion, Environment.MachineName, AppConfiguration.Current, currentDirectory);
 
             return WebHost.CreateDefaultBuilder(args)
                 .UseEnvironment(environment)
                 .UseKestrel(c => {
                     c.AddServerHeader = false;
-                    if (Settings.Current.MaximumEventPostSize > 0)
-                        c.Limits.MaxRequestBodySize = Settings.Current.MaximumEventPostSize;
+                    if (AppConfiguration.Current.MaximumEventPostSize > 0)
+                        c.Limits.MaxRequestBodySize = AppConfiguration.Current.MaximumEventPostSize;
                 })
                 .UseConfiguration(config)
                 .ConfigureLogging(b => b.AddSerilog(Log.Logger))

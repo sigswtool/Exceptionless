@@ -1,16 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
 using Foundatio.Metrics;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 
 namespace Exceptionless.Core.Plugins.EventParser {
-    public class EventParserPluginManager : PluginManagerBase<IEventParserPlugin> {
-        public EventParserPluginManager(IServiceProvider serviceProvider, IMetricsClient metricsClient = null, ILoggerFactory loggerFactory = null) : base(serviceProvider, metricsClient, loggerFactory){}
+    public class EventParser : PluginManagerBase<IEventParserPlugin> {
+        public EventParser(IServiceProvider serviceProvider, IMetricsClient metricsClient = null, ILoggerFactory loggerFactory = null) : base(serviceProvider, metricsClient, loggerFactory){}
 
         /// <summary>
         /// Runs through the formatting plugins to calculate an html summary for the stack based on the event data.

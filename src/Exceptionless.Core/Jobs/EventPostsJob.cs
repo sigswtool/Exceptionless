@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Exceptionless.Core.AppStats;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
-using Exceptionless.Core.Pipeline;
 using Exceptionless.Core.Plugins.EventParser;
 using Exceptionless.Core.Queues.Models;
 using Exceptionless.Core.Repositories;
@@ -18,37 +17,27 @@ using Foundatio.Jobs;
 using Foundatio.Metrics;
 using Foundatio.Queues;
 using Foundatio.Repositories;
-using Foundatio.Storage;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 #pragma warning disable 1998
 
 namespace Exceptionless.Core.Jobs {
     [Job(Description = "Processes queued events.", InitialDelay = "2s")]
     public class EventPostsJob : QueueJobBase<EventPost> {
-        private readonly long _maximumEventPostFileSize = Settings.Current.MaximumEventPostSize + 1000;
-        private readonly long _maximumUncompressedEventPostSize = Settings.Current.MaximumEventPostSize * 10;
+        private readonly long _maximumEventPostFileSize;
+        private readonly long _maximumUncompressedEventPostSize;
 
-        private readonly EventPostService _eventPostService;
-        private readonly EventParserPluginManager _eventParserPluginManager;
-        private readonly EventPipeline _eventPipeline;
-        private readonly IMetricsClient _metrics;
-        private readonly UsageService _usageService;
-        private readonly IOrganizationRepository _organizationRepository;
-        private readonly IProjectRepository _projectRepository;
-        private readonly JsonSerializerSettings _jsonSerializerSettings;
+        private readonly IAppService _app;
+        private readonly IDatabase _db;
+        private readonly EventService _eventService;
 
-        public EventPostsJob(IQueue<EventPost> queue, EventPostService eventPostService, EventParserPluginManager eventParserPluginManager, EventPipeline eventPipeline, IMetricsClient metrics, UsageService usageService, IOrganizationRepository organizationRepository, IProjectRepository projectRepository, JsonSerializerSettings jsonSerializerSettings, ILoggerFactory loggerFactory = null) : base(queue, loggerFactory) {
-            _eventPostService = eventPostService;
-            _eventParserPluginManager = eventParserPluginManager;
-            _eventPipeline = eventPipeline;
-            _metrics = metrics;
-            _usageService = usageService;
-            _organizationRepository = organizationRepository;
-            _projectRepository = projectRepository;
-            _jsonSerializerSettings = jsonSerializerSettings;
+        public EventPostsJob(IAppService app, IDatabase database, EventService eventService) : base(eventService.Queue, app.LoggerFactory) {
+            _app = app;
+            _db = database;
+            _eventService = eventService;
+            _maximumEventPostFileSize = app.Config.MaximumEventPostSize + 1000;
+            _maximumUncompressedEventPostSize = app.Config.MaximumEventPostSize * 10;
 
             AutoComplete = false;
         }
@@ -57,9 +46,9 @@ namespace Exceptionless.Core.Jobs {
             var entry = context.QueueEntry;
             var ep = entry.Value;
             string payloadPath = Path.ChangeExtension(entry.Value.FilePath, ".payload");
-            var payloadTask = _metrics.TimeAsync(() => _eventPostService.GetEventPostPayloadAsync(payloadPath, context.CancellationToken), MetricNames.PostsMarkFileActiveTime);
-            var projectTask = _projectRepository.GetByIdAsync(ep.ProjectId, o => o.Cache());
-            var organizationTask = _organizationRepository.GetByIdAsync(ep.OrganizationId, o => o.Cache());
+            var payloadTask = _app.Metrics.TimeAsync(() => _eventService.GetEventPostPayloadAsync(payloadPath, context.CancellationToken), MetricNames.PostsMarkFileActiveTime);
+            var projectTask = _db.Projects.GetByIdAsync(ep.ProjectId, o => o.Cache());
+            var organizationTask = _db.Organizations.GetByIdAsync(ep.OrganizationId, o => o.Cache());
 
             var payload = await payloadTask.AnyContext();
             if (payload == null) {
@@ -67,17 +56,17 @@ namespace Exceptionless.Core.Jobs {
                 return JobResult.FailedWithMessage($"Unable to retrieve payload '{payloadPath}'.");
             }
 
-            _metrics.Gauge(MetricNames.PostsMessageSize, payload.LongLength);
+            _app.Metrics.Gauge(MetricNames.PostsMessageSize, payload.LongLength);
             if (payload.LongLength > _maximumEventPostFileSize) {
-                await Task.WhenAll(_metrics.TimeAsync(() => entry.CompleteAsync(), MetricNames.PostsCompleteTime), projectTask, organizationTask).AnyContext();
-                return JobResult.FailedWithMessage($"Unable to process payload '{payloadPath}' ({payload.LongLength} bytes): Maximum event post size limit ({Settings.Current.MaximumEventPostSize} bytes) reached.");
+                await Task.WhenAll(_app.Metrics.TimeAsync(() => entry.CompleteAsync(), MetricNames.PostsCompleteTime), projectTask, organizationTask).AnyContext();
+                return JobResult.FailedWithMessage($"Unable to process payload '{payloadPath}' ({payload.LongLength} bytes): Maximum event post size limit ({_app.Config.MaximumEventPostSize} bytes) reached.");
             }
 
             using (_logger.BeginScope(new ExceptionlessState().Organization(ep.OrganizationId).Project(ep.ProjectId))) {
-                _metrics.Gauge(MetricNames.PostsCompressedSize, payload.Length);
+                _app.Metrics.Gauge(MetricNames.PostsCompressedSize, payload.Length);
 
                 bool isDebugLogLevelEnabled = _logger.IsEnabled(LogLevel.Debug);
-                bool isInternalProject = ep.ProjectId == Settings.Current.InternalProjectId;
+                bool isInternalProject = ep.ProjectId == _app.Config.InternalProjectId;
                 if (!isInternalProject && _logger.IsEnabled(LogLevel.Information)) {
                     using (_logger.BeginScope(new ExceptionlessState().Tag("processing").Tag("compressed").Tag(ep.ContentEncoding).Value(payload.Length)))
                         _logger.LogInformation("Processing post: id={QueueEntryId} path={FilePath} project={project} ip={IpAddress} v={ApiVersion} agent={UserAgent}", entry.Id, payloadPath, ep.ProjectId, ep.IpAddress, ep.ApiVersion, ep.UserAgent);
@@ -90,7 +79,7 @@ namespace Exceptionless.Core.Jobs {
                     return JobResult.Success;
                 }
 
-                long maxEventPostSize = Settings.Current.MaximumEventPostSize;
+                long maxEventPostSize = _app.Config.MaximumEventPostSize;
                 var uncompressedData = payload;
                 if (!String.IsNullOrEmpty(ep.ContentEncoding)) {
                     if (!isInternalProject && isDebugLogLevelEnabled) {
@@ -100,17 +89,17 @@ namespace Exceptionless.Core.Jobs {
 
                     maxEventPostSize = _maximumUncompressedEventPostSize;
                     try {
-                        _metrics.Time(() => {
+                        _app.Metrics.Time(() => {
                             uncompressedData = uncompressedData.Decompress(ep.ContentEncoding);
                         }, MetricNames.PostsDecompressionTime);
                     } catch (Exception ex) {
-                        _metrics.Counter(MetricNames.PostsDecompressionErrors);
+                        _app.Metrics.Counter(MetricNames.PostsDecompressionErrors);
                         await Task.WhenAll(CompleteEntryAsync(entry, ep, SystemClock.UtcNow), organizationTask).AnyContext();
                         return JobResult.FailedWithMessage($"Unable to decompress EventPost data '{payloadPath}' ({payload.Length} bytes compressed): {ex.Message}");
                     }
                 }
 
-                _metrics.Gauge(MetricNames.PostsUncompressedSize, payload.LongLength);
+                _app.Metrics.Gauge(MetricNames.PostsUncompressedSize, payload.LongLength);
                 if (uncompressedData.Length > maxEventPostSize) {
                     await Task.WhenAll(CompleteEntryAsync(entry, ep, SystemClock.UtcNow), organizationTask).AnyContext();
                     return JobResult.FailedWithMessage($"Unable to process decompressed EventPost data '{payloadPath}' ({payload.Length} bytes compressed, {uncompressedData.Length} bytes): Maximum uncompressed event post size limit ({maxEventPostSize} bytes) reached.");
@@ -144,9 +133,9 @@ namespace Exceptionless.Core.Jobs {
 
                 bool isSingleEvent = events.Count == 1;
                 if (!isSingleEvent) {
-                    await _metrics.TimeAsync(async () => {
+                    await _app.Metrics.TimeAsync(async () => {
                         // Don't process all the events if it will put the account over its limits.
-                        int eventsToProcess = await _usageService.GetRemainingEventLimitAsync(organization).AnyContext();
+                        int eventsToProcess = await _eventService.Usage.GetRemainingEventLimitAsync(organization).AnyContext();
 
                         // Add 1 because we already counted 1 against their limit when we received the event post.
                         if (eventsToProcess < Int32.MaxValue)
@@ -157,14 +146,14 @@ namespace Exceptionless.Core.Jobs {
 
                         // Increment the count if greater than 1, since we already incremented it by 1 in the OverageHandler.
                         if (events.Count > 1)
-                            await _usageService.IncrementUsageAsync(organization, project, false, events.Count - 1, applyHourlyLimit: false).AnyContext();
+                            await _eventService.Usage.IncrementUsageAsync(organization, project, false, events.Count - 1, applyHourlyLimit: false).AnyContext();
                     }, MetricNames.PostsUpdateEventLimitTime).AnyContext();
                 }
 
                 int errorCount = 0;
                 var eventsToRetry = new List<PersistentEvent>();
                 try {
-                    var contexts = await _eventPipeline.RunAsync(events, organization, project, ep).AnyContext();
+                    var contexts = await _eventService.Pipeline.RunAsync(events, organization, project, ep).AnyContext();
                     if (!isInternalProject && isDebugLogLevelEnabled) {
                         using (_logger.BeginScope(new ExceptionlessState().Value(contexts.Count)))
                             _logger.LogDebug("Ran {@value} events through the pipeline: id={QueueEntryId} success={SuccessCount} error={ErrorCount}", contexts.Count, entry.Id, contexts.Count(r => r.IsProcessed), contexts.Count(r => r.HasError));
@@ -200,7 +189,7 @@ namespace Exceptionless.Core.Jobs {
                 }
 
                 if (eventsToRetry.Count > 0)
-                    await _metrics.TimeAsync(() => RetryEventsAsync(eventsToRetry, ep, entry, project, isInternalProject), MetricNames.PostsRetryTime).AnyContext();
+                    await _app.Metrics.TimeAsync(() => RetryEventsAsync(eventsToRetry, ep, entry, project, isInternalProject), MetricNames.PostsRetryTime).AnyContext();
 
                 if (isSingleEvent && errorCount > 0)
                     await AbandonEntryAsync(entry).AnyContext();
@@ -222,9 +211,9 @@ namespace Exceptionless.Core.Jobs {
                     if (!String.IsNullOrEmpty(ep.CharSet))
                         encoding = Encoding.GetEncoding(ep.CharSet);
 
-                    _metrics.Time(() => {
+                    _app.Metrics.Time(() => {
                         string input = encoding.GetString(uncompressedData);
-                        events = _eventParserPluginManager.ParseEvents(input, ep.ApiVersion, ep.UserAgent) ?? new List<PersistentEvent>(0);
+                        events = _eventService.Parser.ParseEvents(input, ep.ApiVersion, ep.UserAgent) ?? new List<PersistentEvent>(0);
                         foreach (var ev in events) {
                             ev.CreatedUtc = createdUtc;
                             ev.OrganizationId = ep.OrganizationId;
@@ -238,10 +227,10 @@ namespace Exceptionless.Core.Jobs {
                             ev.Id = ev.StackId = null;
                         }
                     }, MetricNames.PostsParsingTime);
-                    _metrics.Counter(MetricNames.PostsParsed);
-                    _metrics.Gauge(MetricNames.PostsEventCount, events.Count);
+                    _app.Metrics.Counter(MetricNames.PostsParsed);
+                    _app.Metrics.Gauge(MetricNames.PostsEventCount, events.Count);
                 } catch (Exception ex) {
-                    _metrics.Counter(MetricNames.PostsParseErrors);
+                    _app.Metrics.Counter(MetricNames.PostsParseErrors);
                     if (!isInternalProject) _logger.LogError(ex, "An error occurred while processing the EventPost {QueueEntryId}: {Message}", queueEntryId, ex.Message);
                 }
 
@@ -253,13 +242,13 @@ namespace Exceptionless.Core.Jobs {
         }
 
         private async Task RetryEventsAsync(List<PersistentEvent> eventsToRetry, EventPostInfo ep, IQueueEntry<EventPost> queueEntry, Project project, bool isInternalProject) {
-            _metrics.Gauge(MetricNames.EventsRetryCount, eventsToRetry.Count);
+            _app.Metrics.Gauge(MetricNames.EventsRetryCount, eventsToRetry.Count);
             foreach (var ev in eventsToRetry) {
                 try {
-                    var stream = new MemoryStream(ev.GetBytes(_jsonSerializerSettings));
+                    var stream = new MemoryStream(ev.GetBytes(_app.JsonSerializerSettings));
 
                     // Put this single event back into the queue so we can retry it separately.
-                    await _eventPostService.EnqueueAsync(new EventPost {
+                    await _eventService.EnqueueAsync(new EventPost {
                         ApiVersion = ep.ApiVersion,
                         CharSet = ep.CharSet,
                         ContentEncoding = null,
@@ -276,19 +265,19 @@ namespace Exceptionless.Core.Jobs {
                             _logger.LogCritical(ex, "Error while requeuing event post {FilePath}: {Message}", queueEntry.Value.FilePath, ex.Message);
                     }
 
-                    _metrics.Counter(MetricNames.EventsRetryErrors);
+                    _app.Metrics.Counter(MetricNames.EventsRetryErrors);
                 }
             }
         }
 
         private Task AbandonEntryAsync(IQueueEntry<EventPost> queueEntry) {
-            return _metrics.TimeAsync(queueEntry.AbandonAsync, MetricNames.PostsAbandonTime);
+            return _app.Metrics.TimeAsync(queueEntry.AbandonAsync, MetricNames.PostsAbandonTime);
         }
 
         private Task CompleteEntryAsync(IQueueEntry<EventPost> entry, EventPostInfo eventPostInfo, DateTime created) {
-            return _metrics.TimeAsync(async () => {
+            return _app.Metrics.TimeAsync(async () => {
                 await entry.CompleteAsync().AnyContext();
-                await _eventPostService.CompleteEventPostAsync(entry.Value.FilePath, eventPostInfo.ProjectId, created, entry.Value.ShouldArchive).AnyContext();
+                await _eventService.CompleteEventPostAsync(entry.Value.FilePath, eventPostInfo.ProjectId, created, entry.Value.ShouldArchive).AnyContext();
             }, MetricNames.PostsCompleteTime);
         }
 

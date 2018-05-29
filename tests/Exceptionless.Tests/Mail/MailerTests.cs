@@ -17,13 +17,13 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Mail {
-    public class MailerTests : TestBase {
+    public class MailerTests : TestWithServices {
         private readonly IMailer _mailer;
 
-        public MailerTests(ITestOutputHelper output) : base(output) {
+        public MailerTests(ServicesFixture fixture) : base(fixture) {
             _mailer = GetService<IMailer>();
             if (_mailer is NullMailer)
-                _mailer = new Mailer(GetService<IQueue<MailMessage>>(), GetService<FormattingPluginManager>(), GetService<IMetricsClient>(), Log.CreateLogger<Mailer>());
+                _mailer = new Mailer(GetService<IQueue<MailMessage>>(), GetService<FormattingPluginManager>(), GetService<IMetricsClient>(), TestLog.CreateLogger<Mailer>());
         }
 
         [Fact]
@@ -172,7 +172,7 @@ namespace Exceptionless.Tests.Mail {
 
             await _mailer.SendOrganizationInviteAsync(user, organization, new Invite {
                 DateAdded = SystemClock.UtcNow,
-                EmailAddress = Settings.Current.TestEmailAddress,
+                EmailAddress = Config.TestEmailAddress,
                 Token = "1"
             });
 

@@ -12,11 +12,11 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Plugins {
-    public class EventParserTests : TestBase {
-        private readonly EventParserPluginManager _parser;
+    public class EventParserTests : TestWithServices {
+        private readonly EventParser _parser;
 
-        public EventParserTests(ITestOutputHelper output) : base(output) {
-            _parser = GetService<EventParserPluginManager>();
+        public EventParserTests(ServicesFixture fixture) : base(fixture) {
+            _parser = GetService<EventParser>();
         }
 
         public static IEnumerable<object[]> EventData => new[] {

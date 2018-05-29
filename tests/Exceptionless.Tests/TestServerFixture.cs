@@ -2,7 +2,6 @@
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using Exceptionless.Tests.Utility;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Repositories.Configuration;
 using FluentRest;
@@ -10,42 +9,50 @@ using Foundatio.Serializer;
 using Xunit.Abstractions;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Exceptionless.Web;
+using Xunit;
+using Exceptionless.Core;
+using Foundatio.Utility;
+using Foundatio.Logging.Xunit;
+using Microsoft.Extensions.Logging;
 
 namespace Exceptionless.Tests {
-    public class IntegrationTestsBase : TestBase {
+    public class TestServerFixture : IDisposable {
+        private readonly IDisposable _testSystemClock = TestSystemClock.Install();
+        private readonly Lazy<AppConfiguration> _config;
+
+        public TestServerFixture(ITestOutputHelper output) {
+            TestLog = new TestLoggerFactory(output) {
+                MinimumLevel = LogLevel.Information
+            };
+            TestLog.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
+
+            _config = new Lazy<AppConfiguration>(() => Services.GetRequiredService<AppConfiguration>());
+        }
+
+        public TestLoggerFactory TestLog { get; }
+        public IServiceProvider Services => null;
+        public AppConfiguration Config => _config.Value;
+
+        public void Dispose() {}
+    }
+
+    public class TestWithServer : IClassFixture<TestServerFixture> {
+        private readonly TestServerFixture _fixture;
         protected readonly ExceptionlessElasticConfiguration _configuration;
         protected readonly TestServer _server;
         protected readonly FluentClient _client;
         protected readonly HttpClient _httpClient;
         protected readonly ISerializer _serializer;
+        protected readonly ILogger _logger;
 
-        public IntegrationTestsBase(ITestOutputHelper output) : base(output) {
-            var builder = new MvcWebApplicationBuilder<Startup>()
-                .UseSolutionRelativeContentRoot("src/Exceptionless.Web")
-                .ConfigureBeforeStartup(Configure)
-                .ConfigureAfterStartup(RegisterServices)
-                .UseApplicationAssemblies();
-
-            _server = builder.Build();
-
-            var settings = GetService<Newtonsoft.Json.JsonSerializerSettings>();
-            _serializer = GetService<ITextSerializer>();
-            _client = new FluentClient(new JsonContentSerializer(settings), _server.CreateHandler()) {
-                BaseUri = new Uri(_server.BaseAddress + "api/v2")
-            };
-            _httpClient = new HttpClient(_server.CreateHandler()) {
-                BaseAddress = new Uri(_server.BaseAddress + "api/v2/")
-            };
-
-            _configuration = GetService<ExceptionlessElasticConfiguration>();
-            _configuration.DeleteIndexesAsync().GetAwaiter().GetResult();
-            _configuration.ConfigureIndexesAsync(beginReindexingOutdated: false).GetAwaiter().GetResult();
+        public TestWithServer(TestServerFixture fixture) {
+            _fixture = fixture;
+            _logger = _fixture.TestLog.CreateLogger(GetType());
         }
 
-        protected override TService GetService<TService>() {
-            return _server.Host.Services.GetRequiredService<TService>();
-        }
+        protected virtual TService GetService<TService>() => _fixture.Services.GetRequiredService<TService>();
+        protected TestLoggerFactory TestLog => _fixture.TestLog;
+        protected AppConfiguration Config => _fixture.Config;
 
         protected Task<FluentResponse> SendRequest(Action<SendBuilder> configure) {
             var request = _client.CreateRequest();
@@ -97,12 +104,6 @@ namespace Exceptionless.Tests {
             string json = await response.HttpContent.ReadAsStringAsync();
             response.EnsureSuccessStatusCode();
             return _serializer.Deserialize<T>(json);
-        }
-
-        public override void Dispose() {
-            _server?.Dispose();
-            _configuration.Dispose();
-            base.Dispose();
         }
     }
 }

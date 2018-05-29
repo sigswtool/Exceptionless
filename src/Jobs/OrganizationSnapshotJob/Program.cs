@@ -14,8 +14,9 @@ namespace OrganizationSnapshotJob {
             IServiceProvider serviceProvider = null;
             try {
                 serviceProvider = JobServiceProvider.GetServiceProvider();
+                var config = serviceProvider.GetRequiredService<AppConfiguration>();
 
-                if (!Settings.Current.EnableSnapshotJobs) {
+                if (!config.EnableSnapshotJobs) {
                     Log.Logger.Information("Snapshot Jobs are currently disabled.");
                     return 0;
                 }

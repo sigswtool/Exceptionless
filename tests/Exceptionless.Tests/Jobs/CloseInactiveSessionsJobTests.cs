@@ -18,7 +18,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Jobs {
-    public class CloseInactiveSessionsJobTests : ElasticTestBase {
+    public class CloseInactiveSessionsJobTests : TestWithElasticsearch {
         private readonly CloseInactiveSessionsJob _job;
         private readonly ICacheClient _cache;
         private readonly IOrganizationRepository _organizationRepository;
@@ -26,8 +26,9 @@ namespace Exceptionless.Tests.Jobs {
         private readonly IEventRepository _eventRepository;
         private readonly IUserRepository _userRepository;
         private readonly EventPipeline _pipeline;
+        private readonly BillingManager _billingManager;
 
-        public CloseInactiveSessionsJobTests(ITestOutputHelper output) : base(output) {
+        public CloseInactiveSessionsJobTests(TestServerFixture fixture) : base(fixture) {
             _job = GetService<CloseInactiveSessionsJob>();
             _cache = GetService<ICacheClient>();
             _organizationRepository = GetService<IOrganizationRepository>();
@@ -35,6 +36,7 @@ namespace Exceptionless.Tests.Jobs {
             _eventRepository = GetService<IEventRepository>();
             _userRepository = GetService<IUserRepository>();
             _pipeline = GetService<EventPipeline>();
+            _billingManager = GetService<BillingManager>();
 
             CreateDataAsync().GetAwaiter().GetResult();
         }
@@ -159,9 +161,9 @@ namespace Exceptionless.Tests.Jobs {
         private async Task CreateDataAsync() {
             foreach (var organization in OrganizationData.GenerateSampleOrganizations()) {
                 if (organization.Id == TestConstants.OrganizationId3)
-                    BillingManager.ApplyBillingPlan(organization, BillingManager.FreePlan, UserData.GenerateSampleUser());
+                    _billingManager.ApplyBillingPlan(organization, _billingManager.FreePlan, UserData.GenerateSampleUser());
                 else
-                    BillingManager.ApplyBillingPlan(organization, BillingManager.SmallPlan, UserData.GenerateSampleUser());
+                    _billingManager.ApplyBillingPlan(organization, _billingManager.SmallPlan, UserData.GenerateSampleUser());
 
                 organization.StripeCustomerId = Guid.NewGuid().ToString("N");
                 organization.CardLast4 = "1234";

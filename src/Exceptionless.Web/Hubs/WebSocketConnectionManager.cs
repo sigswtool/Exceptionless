@@ -18,12 +18,14 @@ namespace Exceptionless.Web.Hubs {
         private readonly TaskQueue _taskQueue; 
         private readonly Timer _timer;
         private readonly JsonSerializerSettings _serializerSettings;
+        private readonly AppConfiguration _config;
         private readonly ILogger _logger;
 
-        public WebSocketConnectionManager(JsonSerializerSettings serializerSettings, ILoggerFactory loggerFactory) {
+        public WebSocketConnectionManager(JsonSerializerSettings serializerSettings, AppConfiguration config, ILoggerFactory loggerFactory) {
+            _config = config;
             _serializerSettings = serializerSettings;
             _logger = loggerFactory.CreateLogger<WebSocketConnectionManager>();
-            if (!Settings.Current.EnableWebSockets)
+            if (!_config.EnableWebSockets)
                 return;
 
             _taskQueue = new TaskQueue(maxDegreeOfParallelism: 1, loggerFactory: loggerFactory); 
