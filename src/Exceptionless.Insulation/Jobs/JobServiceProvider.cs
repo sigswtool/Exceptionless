@@ -56,12 +56,12 @@ namespace Exceptionless.Insulation.Jobs {
             services.AddLogging(b => b.AddSerilog(Log.Logger));
             services.AddSingleton<IConfiguration>(config);
             services.AddSingleton<AppConfiguration>(appConfig);
-            Core.Bootstrapper.RegisterServices(services);
-            Bootstrapper.RegisterServices(services, true);
+            Core.Bootstrapper.RegisterServices(services, appConfig);
+            Bootstrapper.RegisterServices(services, appConfig, true);
 
             var container = services.BuildServiceProvider();
 
-            Core.Bootstrapper.LogConfiguration(container, container.GetRequiredService<ILoggerFactory>());
+            Core.Bootstrapper.LogConfiguration(container, appConfig, container.GetRequiredService<ILoggerFactory>());
             if (appConfig.EnableBootstrapStartupActions)
                 container.RunStartupActionsAsync(cancellationToken).GetAwaiter().GetResult();
 

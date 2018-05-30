@@ -12,25 +12,24 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Exceptionless.Core.Services {
     public class MessageService : IDisposable, IStartupAction {
-        private readonly IStackRepository _stackRepository;
-        private readonly IEventRepository _eventRepository;
+        private readonly IDatabase _db;
         private readonly IConnectionMapping _connectionMapping;
+        private readonly IAppService _app;
         private readonly ILogger _logger;
 
-        public MessageService(IStackRepository stackRepository, IEventRepository eventRepository, IConnectionMapping connectionMapping, ILoggerFactory loggerFactory) {
-            _stackRepository = stackRepository;
-            _eventRepository = eventRepository;
+        public MessageService(IDatabase db, IConnectionMapping connectionMapping, IAppService app) {
+            _db = db;
             _connectionMapping = connectionMapping;
-            _logger = loggerFactory?.CreateLogger<MessageService>() ?? NullLogger<MessageService>.Instance;
+            _logger = app.LoggerFactory?.CreateLogger<MessageService>() ?? NullLogger<MessageService>.Instance;
         }
 
         public Task RunAsync(CancellationToken shutdownToken = default) {
-            if (!AppConfiguration.Current.EnableRepositoryNotifications)
+            if (!_app.Config.EnableRepositoryNotifications)
                 return Task.CompletedTask;
 
-            if (_stackRepository is StackRepository sr)
+            if (_db.Stacks is StackRepository sr)
                 sr.BeforePublishEntityChanged.AddHandler(BeforePublishStackEntityChanged);
-            if (_eventRepository is EventRepository er)
+            if (_db.Events is EventRepository er)
                 er.BeforePublishEntityChanged.AddHandler(BeforePublishEventEntityChanged);
 
             return Task.CompletedTask;
@@ -57,9 +56,9 @@ namespace Exceptionless.Core.Services {
         }
 
         public void Dispose() {
-            if (_stackRepository is StackRepository sr)
+            if (_db.Stacks is StackRepository sr)
                 sr.BeforePublishEntityChanged.RemoveHandler(BeforePublishStackEntityChanged);
-            if (_eventRepository is EventRepository er)
+            if (_db.Events is EventRepository er)
                 er.BeforePublishEntityChanged.RemoveHandler(BeforePublishEventEntityChanged);
         }
     }

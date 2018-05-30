@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core.Messaging.Models;
 using Exceptionless.Core.Models;
+using Exceptionless.Core.Repositories.Configuration;
 using Exceptionless.Core.Repositories.Options;
 using FluentValidation;
 using Foundatio.Repositories;
@@ -15,8 +16,12 @@ using Foundatio.Repositories.Queries;
 
 namespace Exceptionless.Core.Repositories {
     public abstract class RepositoryBase<T> : ElasticRepositoryBase<T> where T : class, IIdentity, new() {
+        protected readonly IAppService _app;
+
         public RepositoryBase(IIndexType<T> indexType, IValidator<T> validator) : base(indexType, validator) {
-            NotificationsEnabled = AppConfiguration.Current.EnableRepositoryNotifications;
+            var elasticConfig = indexType.Index.Configuration as ExceptionlessElasticConfiguration;
+            _app = elasticConfig.App;
+            NotificationsEnabled = _app.Config.EnableRepositoryNotifications;
         }
 
         protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, IDictionary<string, object> data = null, TimeSpan? delay = null) {

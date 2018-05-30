@@ -106,14 +106,14 @@ namespace Exceptionless.Web {
             Bootstrapper.RegisterServices(services, config, LoggerFactory);
 
             services.AddSingleton(new ThrottlingOptions {
-                MaxRequestsForUserIdentifierFunc = userIdentifier => AppConfiguration.Current.ApiThrottleLimit,
+                MaxRequestsForUserIdentifierFunc = userIdentifier => config.ApiThrottleLimit,
                 Period = TimeSpan.FromMinutes(15)
             });
         }
 
         public void Configure(IApplicationBuilder app, IHostingEnvironment env) {
-            Core.Bootstrapper.LogConfiguration(app.ApplicationServices, LoggerFactory);
             var config = app.ApplicationServices.GetRequiredService<AppConfiguration>();
+            Core.Bootstrapper.LogConfiguration(app.ApplicationServices, config, LoggerFactory);
 
             if (!String.IsNullOrEmpty(config.ExceptionlessApiKey) && !String.IsNullOrEmpty(config.ExceptionlessServerUrl))
                 app.UseExceptionless(ExceptionlessClient.Default);

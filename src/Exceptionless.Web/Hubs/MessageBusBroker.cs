@@ -8,7 +8,6 @@ using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Messaging.Models;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Utility;
-using Foundatio.Messaging;
 using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Logging;
 
@@ -18,28 +17,28 @@ namespace Exceptionless.Web.Hubs {
         private static readonly string UserTypeName = typeof(User).Name;
         private readonly WebSocketConnectionManager _connectionManager;
         private readonly IConnectionMapping _connectionMapping;
-        private readonly IMessageSubscriber _subscriber;
+        private readonly IAppService _app;
         private readonly ILogger _logger;
 
-        public MessageBusBroker(WebSocketConnectionManager connectionManager, IConnectionMapping connectionMapping, IMessageSubscriber subscriber, ILogger<MessageBusBroker> logger) {
+        public MessageBusBroker(WebSocketConnectionManager connectionManager, IConnectionMapping connectionMapping, IAppService app, ILogger<MessageBusBroker> logger) {
             _connectionManager = connectionManager;
             _connectionMapping = connectionMapping;
-            _subscriber = subscriber;
+            _app = app;
             _logger = logger;
         }
 
         public async Task RunAsync(CancellationToken shutdownToken = default) {
-            if (!AppConfiguration.Current.EnableWebSockets)
+            if (!_app.Config.EnableWebSockets)
                 return;
 
             _logger.LogDebug("Subscribing to message bus notifications");
             await Task.WhenAll(
-                _subscriber.SubscribeAsync<EntityChanged>(OnEntityChangedAsync, shutdownToken),
-                _subscriber.SubscribeAsync<PlanChanged>(OnPlanChangedAsync, shutdownToken),
-                _subscriber.SubscribeAsync<PlanOverage>(OnPlanOverageAsync, shutdownToken),
-                _subscriber.SubscribeAsync<UserMembershipChanged>(OnUserMembershipChangedAsync, shutdownToken),
-                _subscriber.SubscribeAsync<ReleaseNotification>(OnReleaseNotificationAsync, shutdownToken),
-                _subscriber.SubscribeAsync<SystemNotification>(OnSystemNotificationAsync, shutdownToken)
+                _app.MessageBus.SubscribeAsync<EntityChanged>(OnEntityChangedAsync, shutdownToken),
+                _app.MessageBus.SubscribeAsync<PlanChanged>(OnPlanChangedAsync, shutdownToken),
+                _app.MessageBus.SubscribeAsync<PlanOverage>(OnPlanOverageAsync, shutdownToken),
+                _app.MessageBus.SubscribeAsync<UserMembershipChanged>(OnUserMembershipChangedAsync, shutdownToken),
+                _app.MessageBus.SubscribeAsync<ReleaseNotification>(OnReleaseNotificationAsync, shutdownToken),
+                _app.MessageBus.SubscribeAsync<SystemNotification>(OnSystemNotificationAsync, shutdownToken)
             );
             _logger.LogDebug("Subscribed to message bus notifications");
         }

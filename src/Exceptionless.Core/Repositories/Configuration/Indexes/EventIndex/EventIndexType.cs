@@ -13,8 +13,11 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Core.Repositories.Configuration {
     public class EventIndexType : DailyIndexType<PersistentEvent>, IHavePipelinedIndexType {
-        public EventIndexType(EventIndex index) : base(index, "events", document => document.Date.UtcDateTime) {}
+        public EventIndexType(EventIndex index) : base(index, "events", document => document.Date.UtcDateTime) {
+            App = index.App;
+        }
 
+        public IAppService App { get; }
         public string Pipeline { get; } = "events-pipeline";
 
         public override TypeMappingDescriptor<PersistentEvent> BuildMapping(TypeMappingDescriptor<PersistentEvent> map) {
@@ -46,7 +49,7 @@ namespace Exceptionless.Core.Repositories.Configuration {
                     .AddCopyToMappings()
             );
 
-            if (AppConfiguration.Current.EnableElasticsearchMapperSizePlugin)
+            if (App.Config.EnableElasticsearchMapperSizePlugin)
                 return mapping.SizeField(s => s.Enabled());
 
             return mapping;

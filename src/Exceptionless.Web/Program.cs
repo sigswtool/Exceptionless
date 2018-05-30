@@ -5,6 +5,7 @@ using Exceptionless.Insulation.Configuration;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.Exceptionless;
@@ -38,24 +39,27 @@ namespace Exceptionless.Web {
                 .AddCommandLine(args)
                 .Build();
 
-            AppConfiguration.Load(config, environment);
+            var appConfig = AppConfiguration.Load(config, environment);
 
             var loggerConfig = new LoggerConfiguration().ReadFrom.Configuration(config);
-            if (!String.IsNullOrEmpty(AppConfiguration.Current.ExceptionlessApiKey))
+            if (!String.IsNullOrEmpty(appConfig.ExceptionlessApiKey))
                 loggerConfig.WriteTo.Sink(new ExceptionlessSink(), LogEventLevel.Verbose);
 
             Log.Logger = loggerConfig.CreateLogger();
 
-            Log.Information("Bootstrapping {AppMode} mode API ({InformationalVersion}) on {MachineName} using {@Settings} loaded from {Folder}", environment, AppConfiguration.Current.InformationalVersion, Environment.MachineName, AppConfiguration.Current, currentDirectory);
+            Log.Information("Bootstrapping {AppMode} mode API ({InformationalVersion}) on {MachineName} using {@Settings} loaded from {Folder}", environment, appConfig.InformationalVersion, Environment.MachineName, appConfig, currentDirectory);
 
             return WebHost.CreateDefaultBuilder(args)
                 .UseEnvironment(environment)
                 .UseKestrel(c => {
                     c.AddServerHeader = false;
-                    if (AppConfiguration.Current.MaximumEventPostSize > 0)
-                        c.Limits.MaxRequestBodySize = AppConfiguration.Current.MaximumEventPostSize;
+                    if (appConfig.MaximumEventPostSize > 0)
+                        c.Limits.MaxRequestBodySize = appConfig.MaximumEventPostSize;
                 })
                 .UseConfiguration(config)
+                .ConfigureServices(s => {
+                    s.AddSingleton<AppConfiguration>(appConfig);
+                })
                 .ConfigureLogging(b => b.AddSerilog(Log.Logger))
                 .UseStartup<Startup>();
         }

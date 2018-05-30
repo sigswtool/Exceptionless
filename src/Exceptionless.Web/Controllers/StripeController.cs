@@ -15,9 +15,11 @@ namespace Exceptionless.Web.Controllers {
     public class StripeController : ExceptionlessApiController {
         private readonly StripeEventHandler _stripeEventHandler;
         private readonly ILogger _logger;
+        private readonly IAppService _app;
 
-        public StripeController(StripeEventHandler stripeEventHandler, ILogger<StripeController> logger) {
+        public StripeController(StripeEventHandler stripeEventHandler, IAppService app, ILogger<StripeController> logger) {
             _stripeEventHandler = stripeEventHandler;
+            _app = app;
             _logger = logger;
         }
 
@@ -33,7 +35,7 @@ namespace Exceptionless.Web.Controllers {
 
                 StripeEvent stripeEvent;
                 try {
-                    stripeEvent = StripeEventUtility.ConstructEvent(json, Request.Headers["Stripe-Signature"], AppConfiguration.Current.StripeWebHookSigningSecret);
+                    stripeEvent = StripeEventUtility.ConstructEvent(json, Request.Headers["Stripe-Signature"], _app.Config.StripeWebHookSigningSecret);
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Unable to parse incoming event with {Signature}: {Message}", Request.Headers["Stripe-Signature"], ex.Message);
                     return BadRequest();
