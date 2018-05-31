@@ -5,7 +5,6 @@ using Exceptionless.Core.Pipeline;
 using Exceptionless.Core.Helpers;
 using Foundatio.Metrics;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Exceptionless.Core.Plugins {
     public abstract class PluginManagerBase<TPlugin> where TPlugin : class, IPlugin {

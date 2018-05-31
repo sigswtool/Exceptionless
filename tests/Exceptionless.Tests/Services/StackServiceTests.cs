@@ -14,7 +14,7 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Services {
-    public class StackServiceTests : ElasticTestBase {
+    public class StackServiceTests : TestWithElasticsearch {
         private readonly ICacheClient _cache;
         private readonly StackService _stackService;
         private readonly IStackRepository _stackRepository;

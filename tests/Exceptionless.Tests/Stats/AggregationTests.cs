@@ -18,7 +18,7 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Stats {
-    public sealed class AggregationTests : ElasticTestBase {
+    public sealed class AggregationTests : TestWithElasticsearch {
         private readonly EventPipeline _pipeline;
         private readonly IEventRepository _eventRepository;
         private readonly IStackRepository _stackRepository;

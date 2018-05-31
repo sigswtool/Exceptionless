@@ -12,7 +12,7 @@ using Nest;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class ProjectRepositoryTests : ElasticTestBase {
+    public sealed class ProjectRepositoryTests : TestWithElasticsearch {
         private readonly ICacheClient _cache;
         private readonly IProjectRepository _repository;
 

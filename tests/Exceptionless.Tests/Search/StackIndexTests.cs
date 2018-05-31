@@ -10,7 +10,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class StackIndexTests : ElasticTestBase {
+    public sealed class StackIndexTests : TestWithElasticsearch {
         private readonly IStackRepository _repository;
 
         public StackIndexTests(ITestOutputHelper output) : base(output) {

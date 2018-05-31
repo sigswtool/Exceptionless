@@ -29,7 +29,7 @@ using DataDictionary = Exceptionless.Core.Models.DataDictionary;
 using Nest;
 
 namespace Exceptionless.Tests.Pipeline {
-    public sealed class EventPipelineTests : ElasticTestBase {
+    public sealed class EventPipelineTests : TestWithElasticsearch {
         private readonly EventPipeline _pipeline;
         private readonly IEventRepository _eventRepository;
         private readonly IStackRepository _stackRepository;

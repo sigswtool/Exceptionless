@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using Exceptionless.Core.Extensions;
 using Foundatio.Metrics;
 using Microsoft.Extensions.Logging;
 

@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -22,10 +21,9 @@ using Microsoft.Extensions.Logging;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;
-using Run = Exceptionless.Tests.Utility.Run;
 
 namespace Exceptionless.Tests.Controllers {
-    public class EventControllerTests : IntegrationTestsBase {
+    public class EventControllerTests : TestWithServer {
         private readonly IEventRepository _eventRepository;
         private readonly IQueue<EventPost> _eventQueue;
         private readonly IQueue<EventUserDescription> _eventUserDescriptionQueue;
@@ -33,7 +31,7 @@ namespace Exceptionless.Tests.Controllers {
         private readonly IProjectRepository _projectRepository;
         private readonly ITokenRepository _tokenRepository;
 
-        public EventControllerTests(ITestOutputHelper output) : base(output) {
+        public EventControllerTests(AppServerFixture appServerFixture, ServicesFixture fixture, ITestOutputHelper output) : base(appServerFixture, fixture, output) {
             _organizationRepository = GetService<IOrganizationRepository>();
             _projectRepository = GetService<IProjectRepository>();
             _tokenRepository = GetService<ITokenRepository>();
@@ -105,9 +103,12 @@ namespace Exceptionless.Tests.Controllers {
             var content = new StreamContent(ms);
             content.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
             content.Headers.ContentEncoding.Add("gzip");
-            _httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + TestConstants.ApiKey);
-            var response = await _httpClient.PostAsync("events", content);
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            var response = await SendRequest(r => r
+                .Content(content)
+                .AsClientUser()
+                .AppendPath("events")
+                .StatusCodeShouldBeAccepted());
+
             Assert.True(response.Headers.Contains(Headers.ConfigurationVersion));
 
             //var response = await SendTokenRequest(TestConstants.ApiKey, r => r

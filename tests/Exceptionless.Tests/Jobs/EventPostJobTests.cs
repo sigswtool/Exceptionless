@@ -20,7 +20,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Jobs {
-    public class EventPostJobTests : ElasticTestBase {
+    public class EventPostJobTests : TestWithElasticsearch {
         private readonly EventPostsJob _job;
         private readonly IFileStorage _storage;
         private readonly IOrganizationRepository _organizationRepository;

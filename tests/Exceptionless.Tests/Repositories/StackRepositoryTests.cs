@@ -13,7 +13,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class StackRepositoryTests : ElasticTestBase {
+    public sealed class StackRepositoryTests : TestWithElasticsearch {
         private readonly InMemoryCacheClient _cache;
         private readonly IStackRepository _repository;
 

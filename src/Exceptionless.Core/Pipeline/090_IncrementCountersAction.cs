@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core.AppStats;
 using Exceptionless.Core.Billing;
-using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Plugins.EventProcessor;
 using Foundatio.Metrics;
 using Microsoft.Extensions.Logging;

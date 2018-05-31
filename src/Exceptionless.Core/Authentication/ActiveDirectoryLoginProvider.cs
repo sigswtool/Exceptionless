@@ -1,5 +1,4 @@
-﻿using System;
-using System.DirectoryServices;
+﻿using System.DirectoryServices;
 
 namespace Exceptionless.Core.Authentication {
     public class ActiveDirectoryLoginProvider : IDomainLoginProvider {

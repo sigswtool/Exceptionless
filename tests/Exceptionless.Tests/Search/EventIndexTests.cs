@@ -14,7 +14,7 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class EventIndexTests : ElasticTestBase {
+    public sealed class EventIndexTests : TestWithElasticsearch {
         private readonly IEventRepository _repository;
         private readonly PersistentEventQueryValidator _validator;
 

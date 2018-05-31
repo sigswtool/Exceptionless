@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core.Billing;
 using Exceptionless.Core.Repositories;
@@ -9,10 +8,10 @@ using Foundatio.Repositories;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;
-using LogLevel = Microsoft.Extensions.Logging.LogLevel; 
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class OrganizationRepositoryTests : ElasticTestBase {
+    public sealed class OrganizationRepositoryTests : TestWithElasticsearch {
         private readonly InMemoryCacheClient _cache;
         private readonly IOrganizationRepository _repository;
 

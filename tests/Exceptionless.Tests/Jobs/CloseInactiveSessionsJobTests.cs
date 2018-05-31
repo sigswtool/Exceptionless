@@ -18,7 +18,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Jobs {
-    public class CloseInactiveSessionsJobTests : ElasticTestBase {
+    public class CloseInactiveSessionsJobTests : TestWithElasticsearch {
         private readonly CloseInactiveSessionsJob _job;
         private readonly ICacheClient _cache;
         private readonly IOrganizationRepository _organizationRepository;

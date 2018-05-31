@@ -1,4 +1,3 @@
-using System;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Nest;
 

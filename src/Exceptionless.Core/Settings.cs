@@ -30,7 +30,7 @@ namespace Exceptionless.Core {
         [JsonConverter(typeof(StringEnumConverter))]
         public AppMode AppMode { get; private set; }
 
-        public string AppScope { get; private set; }
+        public string AppScope { get; set; }
 
         public bool HasAppScope => !String.IsNullOrEmpty(AppScope);
 

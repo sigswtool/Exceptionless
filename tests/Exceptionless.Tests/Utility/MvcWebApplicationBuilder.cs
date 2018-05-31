@@ -7,12 +7,10 @@ using Exceptionless.Insulation.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
-using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Exceptionless.Tests.Utility
-{
+namespace Exceptionless.Tests.Utility {
     public class MvcWebApplicationBuilder<TStartup> where TStartup : class {
         public string ContentRoot { get; set; }
         public IList<Action<IServiceCollection>> ConfigureServicesBeforeStartup { get; set; } = new List<Action<IServiceCollection>>();

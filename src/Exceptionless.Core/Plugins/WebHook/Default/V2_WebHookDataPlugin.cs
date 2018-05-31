@@ -1,5 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Exceptionless.Core.Pipeline;
 using Exceptionless.Core.Models;
 

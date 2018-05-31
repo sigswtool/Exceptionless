@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core.Extensions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Exceptionless.Core.Pipeline {
     public interface IPipelineAction<TContext> where TContext : IPipelineContext {

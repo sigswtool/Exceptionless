@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using Exceptionless.Tests.Utility;
 using Exceptionless.Core.Plugins.EventParser;
 using Exceptionless.Core.Plugins.EventUpgrader;
 using Xunit;

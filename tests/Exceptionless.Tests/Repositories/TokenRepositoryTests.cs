@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
@@ -13,7 +12,7 @@ using Xunit.Abstractions;
 using Token = Exceptionless.Core.Models.Token;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class TokenRepositoryTests : ElasticTestBase {
+    public sealed class TokenRepositoryTests : TestWithElasticsearch {
         private readonly ITokenRepository _repository;
 
         public TokenRepositoryTests(ITestOutputHelper output) : base(output) {

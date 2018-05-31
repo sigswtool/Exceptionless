@@ -1,5 +1,4 @@
-﻿using System;
-using Exceptionless.Core.Repositories.Configuration;
+﻿using Exceptionless.Core.Repositories.Configuration;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Microsoft.Extensions.Logging;
