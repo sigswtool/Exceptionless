@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Exceptionless.Core.Billing;
@@ -12,7 +11,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Plugins {
-    public class WebHookDataTests : TestWithServices {
+    public sealed class WebHookDataTests : TestWithServices {
         private readonly WebHookDataPluginManager _webHookData;
         private readonly FormattingPluginManager _formatter;
 
@@ -21,16 +20,14 @@ namespace Exceptionless.Tests.Plugins {
             _formatter = GetService<FormattingPluginManager>();
         }
 
-#if DEBUG
         [Theory]
         [MemberData(nameof(WebHookData))]
-#endif
-        public async Task CreateFromEventAsync(Version version, bool expectData) {
+        public async Task CreateFromEventAsync(string version, bool expectData) {
             var settings = GetService<JsonSerializerSettings>();
             settings.Formatting = Formatting.Indented;
             object data = await _webHookData.CreateFromEventAsync(GetWebHookDataContext(version));
             if (expectData) {
-                string filePath = Path.GetFullPath(Path.Combine("..", "..", "..", "Plugins", "WebHookData", $"v{version}.event.expected.json"));
+                string filePath = Path.GetFullPath(Path.Combine("..", "..", "..", "Plugins", "WebHookData", $"{version}.event.expected.json"));
                 string expectedContent = File.ReadAllText(filePath);
                 Assert.Equal(expectedContent, JsonConvert.SerializeObject(data, settings));
             } else {
@@ -38,16 +35,14 @@ namespace Exceptionless.Tests.Plugins {
             }
         }
 
-#if DEBUG
         [Theory]
         [MemberData(nameof(WebHookData))]
-#endif
-        public async Task CanCreateFromStackAsync(Version version, bool expectData) {
+        public async Task CanCreateFromStackAsync(string version, bool expectData) {
             var settings = GetService<JsonSerializerSettings>();
             settings.Formatting = Formatting.Indented;
             object data = await _webHookData.CreateFromStackAsync(GetWebHookDataContext(version));
             if (expectData) {
-                string filePath = Path.GetFullPath(Path.Combine("..", "..", "..", "Plugins", "WebHookData", $"v{version}.stack.expected.json"));
+                string filePath = Path.GetFullPath(Path.Combine("..", "..", "..", "Plugins", "WebHookData", $"{version}.stack.expected.json"));
                 string expectedContent = File.ReadAllText(filePath);
                 Assert.Equal(expectedContent, JsonConvert.SerializeObject(data, settings));
             } else {
@@ -56,13 +51,13 @@ namespace Exceptionless.Tests.Plugins {
         }
 
         public static IEnumerable<object[]> WebHookData => new List<object[]> {
-            new object[] { new Version(0, 0), false },
-            new object[] { new Version(1, 0), true },
-            new object[] { new Version(2, 0), true },
-            new object[] { new Version(3, 0), false }
+            new object[] { "v0", false },
+            new object[] { WebHook.KnownVersions.Version1, true },
+            new object[] { WebHook.KnownVersions.Version2, true },
+            new object[] { "v3", false }
         }.ToArray();
 
-        private WebHookDataContext GetWebHookDataContext(Version version) {
+        private WebHookDataContext GetWebHookDataContext(string version) {
             string json = File.ReadAllText(Path.GetFullPath(Path.Combine("..", "..", "..", "ErrorData", "1477.expected.json")));
 
             var settings = GetService<JsonSerializerSettings>();

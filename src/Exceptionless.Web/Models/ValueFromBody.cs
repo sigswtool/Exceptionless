@@ -1,9 +1,10 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace Exceptionless.Web.Models {
     [DebuggerDisplay("{Value}")]
     public class ValueFromBody<T> {
+        private ValueFromBody() {}
+        
         public ValueFromBody(T value) {
             Value = value;
         }

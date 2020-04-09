@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using AutoMapper;
 using AutoMapper.EquivalencyExpression;
@@ -28,10 +27,11 @@ using Exceptionless.Core.Repositories.Configuration;
 using Exceptionless.Core.Serialization;
 using Exceptionless.Core.Services;
 using Exceptionless.Core.Utility;
-using Exceptionless.DateTimeExtensions;
 using Exceptionless.Serializer;
 using FluentValidation;
 using Foundatio.Caching;
+using Foundatio.Hosting.Jobs;
+using Foundatio.Hosting.Startup;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Messaging;
@@ -39,40 +39,29 @@ using Foundatio.Metrics;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Queues;
+using Foundatio.Repositories.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Migrations;
 using Foundatio.Serializer;
 using Foundatio.Storage;
-using Foundatio.Utility;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using DataDictionary = Exceptionless.Core.Models.DataDictionary;
+using MaintainIndexesJob = Foundatio.Repositories.Elasticsearch.Jobs.MaintainIndexesJob;
 
 namespace Exceptionless.Core {
     public class Bootstrapper {
         public static void RegisterServices(IServiceCollection container) {
-            container.ConfigureOptions<ConfigureAppOptions>();
-            container.ConfigureOptions<ConfigureAuthOptions>();
-            container.ConfigureOptions<ConfigureCacheOptions>();
-            container.ConfigureOptions<ConfigureElasticsearchOptions>();
-            container.ConfigureOptions<ConfigureEmailOptions>();
-            container.ConfigureOptions<ConfigureIntercomOptions>();
-            container.ConfigureOptions<ConfigureMessageBusOptions>();
-            container.ConfigureOptions<ConfigureMetricOptions>();
-            container.ConfigureOptions<ConfigureQueueOptions>();
-            container.ConfigureOptions<ConfigureSlackOptions>();
-            container.ConfigureOptions<ConfigureStorageOptions>();
-            container.ConfigureOptions<ConfigureStripeOptions>();
-
             JsonConvert.DefaultSettings = () => new JsonSerializerSettings {
                 DateParseHandling = DateParseHandling.DateTimeOffset
             };
 
             container.AddSingleton<IContractResolver>(s => GetJsonContractResolver());
             container.AddSingleton<JsonSerializerSettings>(s => {
+                // NOTE: These settings may need to be synced in the Elastic Configuration.
                 var settings = new JsonSerializerSettings {
                     MissingMemberHandling = MissingMemberHandling.Ignore,
                     DateParseHandling = DateParseHandling.DateTimeOffset,
@@ -87,14 +76,14 @@ namespace Exceptionless.Core {
             container.AddSingleton<ISerializer>(s => new JsonNetSerializer(s.GetRequiredService<JsonSerializerSettings>()));
             container.AddSingleton<ITextSerializer>(s => new JsonNetSerializer(s.GetRequiredService<JsonSerializerSettings>()));
 
-            container.AddSingleton<ICacheClient>(s => new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = s.GetRequiredService<ILoggerFactory>() }));
+            container.AddSingleton<ICacheClient>(s => new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = s.GetRequiredService<ILoggerFactory>(), CloneValues = true }));
             container.AddSingleton<IMetricsClient>(s => new InMemoryMetricsClient(new InMemoryMetricsClientOptions { LoggerFactory = s.GetRequiredService<ILoggerFactory>() }));
 
             container.AddSingleton<ExceptionlessElasticConfiguration>();
             container.AddSingleton<IElasticConfiguration>(s => s.GetRequiredService<ExceptionlessElasticConfiguration>());
             container.AddStartupAction<ExceptionlessElasticConfiguration>();
 
-            container.AddStartupAction(CreateSampleDataAsync);
+            container.AddStartupAction("Create Sample Data", CreateSampleDataAsync);
 
             container.AddSingleton<IQueueBehavior<EventPost>>(s => new MetricsQueueBehavior<EventPost>(s.GetRequiredService<IMetricsClient>()));
             container.AddSingleton<IQueueBehavior<EventUserDescription>>(s => new MetricsQueueBehavior<EventUserDescription>(s.GetRequiredService<IMetricsClient>()));
@@ -141,14 +130,17 @@ namespace Exceptionless.Core {
 
             container.AddSingleton<IStackRepository, StackRepository>();
             container.AddSingleton<IEventRepository, EventRepository>();
+            container.AddSingleton<IMigrationRepository, MigrationRepository>();
+            container.AddSingleton<MigrationManager>();
+            container.AddSingleton<MigrationIndex>(s => s.GetRequiredService<ExceptionlessElasticConfiguration>().Migrations);
             container.AddSingleton<IOrganizationRepository, OrganizationRepository>();
             container.AddSingleton<IProjectRepository, ProjectRepository>();
             container.AddSingleton<IUserRepository, UserRepository>();
             container.AddSingleton<IWebHookRepository, WebHookRepository>();
             container.AddSingleton<ITokenRepository, TokenRepository>();
 
-            container.AddSingleton<IGeoIpService, MaxMindGeoIpService>();
             container.AddSingleton<IGeocodeService, NullGeocodeService>();
+            container.AddSingleton<IGeoIpService, NullGeoIpService>();
 
             container.AddSingleton<IQueryParser>(s => new ElasticQueryParser());
             container.AddSingleton<IQueryValidator, QueryValidator>();
@@ -158,11 +150,6 @@ namespace Exceptionless.Core {
             container.AddSingleton(typeof(IValidator<>), typeof(Bootstrapper).Assembly);
             container.AddSingleton(typeof(IPipelineAction<EventContext>), typeof(Bootstrapper).Assembly);
             container.AddSingleton(typeof(IPlugin), typeof(Bootstrapper).Assembly);
-            container.AddSingleton<EventParserPluginManager>();
-            container.AddSingleton<EventPluginManager>();
-            container.AddSingleton<EventUpgraderPluginManager>();
-            container.AddSingleton<FormattingPluginManager>();
-            container.AddSingleton<WebHookDataPluginManager>();
             container.AddSingleton(typeof(IJob), typeof(Bootstrapper).Assembly);
             container.AddSingleton<WorkItemJob>();
             container.AddSingleton<MaintainIndexesJob>();
@@ -181,10 +168,10 @@ namespace Exceptionless.Core {
             container.AddSingleton<EventParserPluginManager>();
             container.AddSingleton<EventPipeline>();
             container.AddSingleton<EventPluginManager>();
+            container.AddSingleton<EventUpgraderPluginManager>();
             container.AddSingleton<FormattingPluginManager>();
             container.AddSingleton<WebHookDataPluginManager>();
             container.AddSingleton<UserAgentParser>();
-            container.AddSingleton<SystemHealthChecker>();
             container.AddSingleton<ICoreLastReferenceIdManager, NullCoreLastReferenceIdManager>();
 
             container.AddSingleton<UsageService>();
@@ -208,29 +195,23 @@ namespace Exceptionless.Core {
             });
         }
 
-        public static void LogConfiguration(IServiceProvider serviceProvider, AppOptions appOptions, ILoggerFactory loggerFactory) {
-            var logger = loggerFactory.CreateLogger<Bootstrapper>();
+        public static void LogConfiguration(IServiceProvider serviceProvider, AppOptions appOptions, ILogger logger) {
             if (!logger.IsEnabled(LogLevel.Warning))
                 return;
 
-            var cacheOptions = serviceProvider.GetRequiredService<IOptions<CacheOptions>>();
-            if (String.IsNullOrEmpty(cacheOptions.Value.Provider))
+            if (String.IsNullOrEmpty(appOptions.CacheOptions.Provider))
                 logger.LogWarning("Distributed cache is NOT enabled on {MachineName}.", Environment.MachineName);
             
-            var messageBusOptions = serviceProvider.GetRequiredService<IOptions<MessageBusOptions>>();
-            if (String.IsNullOrEmpty(messageBusOptions.Value.Provider))
+            if (String.IsNullOrEmpty(appOptions.MessageBusOptions.Provider))
                 logger.LogWarning("Distributed message bus is NOT enabled on {MachineName}.", Environment.MachineName);
             
-            var metricsOptions = serviceProvider.GetRequiredService<IOptions<MetricOptions>>();
-            if (String.IsNullOrEmpty(metricsOptions.Value.Provider))
+            if (String.IsNullOrEmpty(appOptions.MetricOptions.Provider))
                 logger.LogWarning("Metrics reporting is NOT enabled on {MachineName}.", Environment.MachineName);
 
-            var queueOptions = serviceProvider.GetRequiredService<IOptions<QueueOptions>>();
-            if (String.IsNullOrEmpty(queueOptions.Value.Provider))
+            if (String.IsNullOrEmpty(appOptions.QueueOptions.Provider))
                 logger.LogWarning("Distributed queue is NOT enabled on {MachineName}.", Environment.MachineName);
             
-            var storageOptions = serviceProvider.GetRequiredService<IOptions<StorageOptions>>();
-            if (String.IsNullOrEmpty(storageOptions.Value.Provider))
+            if (String.IsNullOrEmpty(appOptions.StorageOptions.Provider))
                 logger.LogWarning("Distributed storage is NOT enabled on {MachineName}.", Environment.MachineName);
 
             if (!appOptions.EnableWebSockets)
@@ -238,29 +219,26 @@ namespace Exceptionless.Core {
 
             if (appOptions.AppMode == AppMode.Development)
                 logger.LogWarning("Emails will NOT be sent in Development mode on {MachineName}", Environment.MachineName);
+            else if (String.IsNullOrEmpty(appOptions.EmailOptions.SmtpHost))
+                logger.LogWarning("Emails will NOT be sent until the SmtpHost is configured on {MachineName}", Environment.MachineName);
 
-            var fileStorage = serviceProvider.GetRequiredService<IFileStorage>();
+            var fileStorage = serviceProvider.GetService<IFileStorage>();
             if (fileStorage is InMemoryFileStorage)
                 logger.LogWarning("Using in memory file storage on {MachineName}", Environment.MachineName);
 
-            if (!appOptions.EnableBootstrapStartupActions)
-                logger.LogWarning("Startup Actions is NOT enabled on {MachineName}", Environment.MachineName);
-
-            var elasticsearchOptions = serviceProvider.GetRequiredService<IOptions<ElasticsearchOptions>>();
-            if (elasticsearchOptions.Value.DisableIndexConfiguration)
+            if (appOptions.ElasticsearchOptions.DisableIndexConfiguration)
                 logger.LogWarning("Index Configuration is NOT enabled on {MachineName}", Environment.MachineName);
 
             if (appOptions.EventSubmissionDisabled)
                 logger.LogWarning("Event Submission is NOT enabled on {MachineName}", Environment.MachineName);
 
-            var authOptions = serviceProvider.GetRequiredService<IOptions<AuthOptions>>();
-            if (!authOptions.Value.EnableAccountCreation)
+            if (!appOptions.AuthOptions.EnableAccountCreation)
                 logger.LogWarning("Account Creation is NOT enabled on {MachineName}", Environment.MachineName);
         }
 
         private static async Task CreateSampleDataAsync(IServiceProvider container) {
-            var options = container.GetRequiredService<IOptions<AppOptions>>().Value;
-            var elasticsearchOptions = container.GetRequiredService<IOptions<ElasticsearchOptions>>().Value;
+            var options = container.GetRequiredService<AppOptions>();
+            var elasticsearchOptions = container.GetRequiredService<ElasticsearchOptions>();
             if (options.AppMode != AppMode.Development || elasticsearchOptions.DisableIndexConfiguration)
                 return;
 
@@ -272,27 +250,21 @@ namespace Exceptionless.Core {
             await dataHelper.CreateDataAsync().AnyContext();
         }
 
-        public static void RunJobs(IServiceProvider container, ILoggerFactory loggerFactory, CancellationToken token) {
+        public static void AddHostedJobs(IServiceCollection services, ILoggerFactory loggerFactory) {
             var logger = loggerFactory.CreateLogger("AppBuilder");
-            
-            var options = container.GetRequiredService<IOptions<AppOptions>>().Value;
-            if (!options.RunJobsInProcess) {
-                logger.LogInformation("Jobs running out of process.");
-                return;
-            }
 
-            new JobRunner(container.GetRequiredService<EventPostsJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(2)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<EventUserDescriptionsJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(3)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<EventNotificationsJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(5)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<MailMessageJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(5)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<WebHooksJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(5)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<CloseInactiveSessionsJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(30), interval: TimeSpan.FromSeconds(30)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<DailySummaryJob>(), loggerFactory, initialDelay: TimeSpan.FromMinutes(1), interval: TimeSpan.FromHours(1)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<DownloadGeoIPDatabaseJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(5), interval: TimeSpan.FromDays(1)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<RetentionLimitsJob>(), loggerFactory, initialDelay: TimeSpan.FromMinutes(15), interval: TimeSpan.FromHours(1)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<WorkItemJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(2), instanceCount: 2).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<MaintainIndexesJob>(), loggerFactory, initialDelay: SystemClock.UtcNow.Ceiling(TimeSpan.FromHours(1)) - SystemClock.UtcNow, interval: TimeSpan.FromHours(1)).RunInBackground(token);
-            new JobRunner(container.GetRequiredService<StackEventCountJob>(), loggerFactory, initialDelay: TimeSpan.FromSeconds(2), interval: TimeSpan.FromSeconds(5)).RunInBackground(token);
+            services.AddJob<CloseInactiveSessionsJob>(true);
+            services.AddJob<DailySummaryJob>(true);
+            services.AddJob<DownloadGeoIPDatabaseJob>(true);
+            services.AddJob<EventNotificationsJob>(true);
+            services.AddJob<EventPostsJob>(true);
+            services.AddJob<EventUserDescriptionsJob>(true);
+            services.AddJob<MailMessageJob>(true);
+            services.AddCronJob<MaintainIndexesJob>("10 */2 * * *");
+            services.AddJob<RetentionLimitsJob>(true);
+            services.AddJob<StackEventCountJob>(true);
+            services.AddJob<WebHooksJob>(true);
+            services.AddJob<WorkItemJob>(true);
 
             logger.LogWarning("Jobs running in process.");
         }

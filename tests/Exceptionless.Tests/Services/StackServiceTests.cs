@@ -8,18 +8,17 @@ using Exceptionless.Tests.Utility;
 using Foundatio.Caching;
 using Foundatio.Repositories;
 using Foundatio.Utility;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Services {
-    public class StackServiceTests : ElasticTestBase {
+    public class StackServiceTests : IntegrationTestsBase {
         private readonly ICacheClient _cache;
         private readonly StackService _stackService;
         private readonly IStackRepository _stackRepository;
 
-        public StackServiceTests(ITestOutputHelper output) : base(output) {
+        public StackServiceTests(ITestOutputHelper output, AppWebHostFactory factory) : base(output, factory) {
             Log.SetLogLevel<StackService>(LogLevel.Trace);
             _cache = GetService<ICacheClient>();
             _stackService = GetService<StackService>();
@@ -39,11 +38,11 @@ namespace Exceptionless.Tests.Services {
             Assert.Equal(DateTime.MinValue, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMinDateCacheKey(stack.Id)));
             Assert.Equal(DateTime.MinValue, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMaxDateCacheKey(stack.Id)));
             Assert.Equal(0, await _cache.GetAsync<long>(_stackService.GetStackOccurrenceCountCacheKey(stack.Id), 0));
-            var occurrenceSet = await _cache.GetSetAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
+            var occurrenceSet = await _cache.GetListAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
             Assert.True(occurrenceSet.IsNull || !occurrenceSet.HasValue || occurrenceSet.Value.Count == 0);
 
             var firstUtcNow = SystemClock.UtcNow.Floor(TimeSpan.FromMilliseconds(1));
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             await _stackService.IncrementStackUsageAsync(TestConstants.OrganizationId, TestConstants.ProjectId, stack.Id, firstUtcNow, firstUtcNow, 1);
 
             // Assert stack state has no change after increment usage
@@ -56,18 +55,18 @@ namespace Exceptionless.Tests.Services {
             Assert.Equal(firstUtcNow, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMinDateCacheKey(stack.Id)));
             Assert.Equal(firstUtcNow, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMaxDateCacheKey(stack.Id)));
             Assert.Equal(1, await _cache.GetAsync<long>(_stackService.GetStackOccurrenceCountCacheKey(stack.Id), 0));
-            occurrenceSet = await _cache.GetSetAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
+            occurrenceSet = await _cache.GetListAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
             Assert.Single(occurrenceSet.Value);
 
             var secondUtcNow = SystemClock.UtcNow.Floor(TimeSpan.FromMilliseconds(1));
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             await _stackService.IncrementStackUsageAsync(TestConstants.OrganizationId, TestConstants.ProjectId, stack.Id, secondUtcNow, secondUtcNow, 2);
 
             // Assert state in cache has been changed after increment usage again
             Assert.Equal(firstUtcNow, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMinDateCacheKey(stack.Id)));
             Assert.Equal(secondUtcNow, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMaxDateCacheKey(stack.Id)));
             Assert.Equal(3, await _cache.GetAsync<long>(_stackService.GetStackOccurrenceCountCacheKey(stack.Id), 0));
-            occurrenceSet = await _cache.GetSetAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
+            occurrenceSet = await _cache.GetListAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
             Assert.Single(occurrenceSet.Value);
         }
 
@@ -104,7 +103,7 @@ namespace Exceptionless.Tests.Services {
             Assert.Equal(maxOccurrenceDate, await _cache.GetUnixTimeMillisecondsAsync(_stackService.GetStackOccurrenceMaxDateCacheKey(stack2.Id)));
             Assert.Equal(200, await _cache.GetAsync<long>(_stackService.GetStackOccurrenceCountCacheKey(stack2.Id), 0));
 
-            var occurrenceSet = await _cache.GetSetAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
+            var occurrenceSet = await _cache.GetListAsync<(string OrganizationId, string ProjectId, string StackId)>(_stackService.GetStackOccurrenceSetCacheKey());
             Assert.Equal(2, occurrenceSet.Value.Count);
 
             async Task IncrementUsageBatch() {

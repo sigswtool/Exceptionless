@@ -4,7 +4,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Linq;
 using System.Security.Cryptography;
-using Exceptionless.Core.Models;
 
 namespace Exceptionless.Core.Extensions {
     public static class StringExtensions {
@@ -53,6 +52,16 @@ namespace Exceptionless.Core.Extensions {
 
             // 192.168.0.0 – 192.168.255.255 (Class C)
             return ip.StartsWith("192.168.");
+        }
+
+        public static string TrimScript(this string script) {
+            if (String.IsNullOrEmpty(script))
+                return script;
+
+            return script
+                .Replace("\r", String.Empty)
+                .Replace("\n", String.Empty)
+                .Replace("  ", " ");
         }
 
         public static string GetNewToken() {

@@ -1,5 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using AutoMapper;
 using Exceptionless.Core;
 using Exceptionless.Core.Billing;
@@ -10,40 +9,30 @@ using Exceptionless.Core.Models.Data;
 using Exceptionless.Core.Queues.Models;
 using Exceptionless.Web.Hubs;
 using Exceptionless.Web.Models;
-using Exceptionless.Web.Utility;
-using Exceptionless.Web.Utility.Handlers;
+using Foundatio.Hosting.Startup;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using Stripe;
+using Token = Exceptionless.Core.Models.Token;
 
 namespace Exceptionless.Web {
     public class Bootstrapper {
-        public static void RegisterServices(IServiceCollection services, ILoggerFactory loggerFactory) {
+        public static void RegisterServices(IServiceCollection services, AppOptions appOptions, ILoggerFactory loggerFactory) {
             services.AddSingleton<WebSocketConnectionManager>();
             services.AddSingleton<MessageBusBroker>();
-            services.AddSingleton<MessageBusBrokerMiddleware>();
-
-            services.AddSingleton<OverageMiddleware>();
-            services.AddSingleton<ThrottlingMiddleware>();
 
             services.AddTransient<Profile, ApiMappings>();
 
             Core.Bootstrapper.RegisterServices(services);
-            
-            var serviceProvider = services.BuildServiceProvider();
-            var options = serviceProvider.GetRequiredService<IOptions<AppOptions>>().Value;
-            Insulation.Bootstrapper.RegisterServices(serviceProvider, services, options, options.RunJobsInProcess);
+            Insulation.Bootstrapper.RegisterServices(services, appOptions, appOptions.RunJobsInProcess);
 
-            if (options.RunJobsInProcess)
-                services.AddSingleton<IHostedService, JobsHostedService>();
+            if (appOptions.RunJobsInProcess)
+                Core.Bootstrapper.AddHostedJobs(services, loggerFactory);
 
             var logger = loggerFactory.CreateLogger<Startup>();
             services.AddStartupAction<MessageBusBroker>();
-            services.AddStartupAction((sp, ct) => {
+            services.AddStartupAction("Subscribe to Log Work Item Progress", (sp, ct) => {
                 var subscriber = sp.GetRequiredService<IMessageSubscriber>();
                 return subscriber.SubscribeAsync<WorkItemStatus>(workItemStatus => {
                     if (logger.IsEnabled(LogLevel.Trace))
@@ -67,7 +56,10 @@ namespace Exceptionless.Web {
                     vo.IsOverMonthlyLimit = o.IsOverMonthlyLimit();
                 });
 
-                CreateMap<StripeInvoice, InvoiceGridModel>().AfterMap((si, igm) => igm.Id = igm.Id.Substring(3));
+                CreateMap<Stripe.Invoice, InvoiceGridModel>().AfterMap((si, igm) => {
+                   igm.Id = igm.Id.Substring(3);
+                   igm.Date = si.Created;
+                });
 
                 CreateMap<NewProject, Project>();
                 CreateMap<Project, ViewProject>().AfterMap((p, vp) => vp.HasSlackIntegration = p.Data.ContainsKey(Project.KnownDataKeys.SlackToken));

@@ -30,6 +30,18 @@ spec:
         - name: {{ template "exceptionless.name" . }}-api
           image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
           imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 1
           resources:
             requests:
               memory: 3Gi
@@ -47,7 +59,7 @@ spec:
           env:
             - name: RunJobsInProcess
               value: 'false'
-{{- if (empty .Values.storage.azureConnectionString) }}
+{{- if (empty .Values.storage.connectionString) }}
           volumeMounts:
             - mountPath: "/app/storage"
               name: storage
@@ -85,20 +97,24 @@ metadata:
   name: {{ template "exceptionless.fullname" . }}-api-ingress
   annotations:
     kubernetes.io/ingress.class: nginx
-    certmanager.k8s.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,If-Modified-Since,Cache-Control,Content-Type,Authorization,ETag,Link,v,X-Requested-With,X-Exceptionless-Client,X-Result-Count,X-RateLimit-Limit,X-RateLimit-Remaining,X-Exceptionless-ConfigVersion"
     nginx.ingress.kubernetes.io/enable-cors: "true"
 spec:
   tls:
   - hosts:
-    - {{.Values.api.domain}}
+    {{- range .Values.api.domains }}
+    - {{ . }}
+    {{- end }}
     secretName: {{ template "exceptionless.fullname" . }}-api-tls
   rules:
-  - host: {{.Values.api.domain}}
+  {{- range .Values.api.domains }}
+  - host: {{ . }}
     http:
       paths:
       - path: /
         backend:
-          serviceName: {{ template "exceptionless.fullname" . }}-api
+          serviceName: {{ template "exceptionless.fullname" $ }}-api
           servicePort: 80
+  {{- end }}

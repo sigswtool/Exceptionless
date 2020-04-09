@@ -5,17 +5,17 @@ using System.Threading.Tasks;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Repositories.Configuration;
+using Exceptionless.Core.Repositories.Queries;
 using FluentValidation;
 using Foundatio.Repositories;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
-using Microsoft.Extensions.Options;
 using Nest;
 
 namespace Exceptionless.Core.Repositories {
     public class ProjectRepository : RepositoryOwnedByOrganization<Project>, IProjectRepository {
-        public ProjectRepository(ExceptionlessElasticConfiguration configuration, IValidator<Project> validator, IOptions<AppOptions> options)
-            : base(configuration.Organizations.Project, validator, options) {
+        public ProjectRepository(ExceptionlessElasticConfiguration configuration, IValidator<Project> validator, AppOptions options)
+            : base(configuration.Projects, validator, options) {
         }
 
         public Task<CountResult> GetCountByOrganizationIdAsync(string organizationId) {
@@ -31,8 +31,17 @@ namespace Exceptionless.Core.Repositories {
 
             if (organizationIds.Count == 0)
                 return Task.FromResult(new FindResults<Project>());
+            
+            return FindAsync(q => q.Organizations(organizationIds).SortAscending(p => p.Name.Suffix("keyword")), options);
+        }
+        
+        public Task<FindResults<Project>> GetByFilterAsync(AppFilter systemFilter, string userFilter, string sort, CommandOptionsDescriptor<Project> options = null) {
+            IRepositoryQuery<Project> query = new RepositoryQuery<Project>()
+                .AppFilter(systemFilter)
+                .FilterExpression(userFilter);
 
-            return FindAsync(q => q.Organizations(organizationIds), options);
+            query = !String.IsNullOrEmpty(sort) ? query.SortExpression(sort) : query.SortAscending(p => p.Name.Suffix("keyword"));
+            return FindAsync(q => query, options);
         }
 
         public Task<FindResults<Project>> GetByNextSummaryNotificationOffsetAsync(byte hourToSendNotificationsAfterUtcMidnight, int limit = 50) {

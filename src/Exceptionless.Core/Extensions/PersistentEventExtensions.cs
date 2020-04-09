@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Exceptionless.Core.Extensions;
@@ -52,7 +52,7 @@ namespace Exceptionless {
                         ev.Idx[field + "-d"] = dtoValue;
                     else if (Decimal.TryParse(input, out decimal decValue))
                         ev.Idx[field + "-n"] = decValue;
-                    else if (Double.TryParse(input, out double dblValue))
+                    else if (Double.TryParse(input, out double dblValue) && !Double.IsNaN(dblValue) && !Double.IsInfinity(dblValue))
                         ev.Idx[field + "-n"] = dblValue;
                     else
                         ev.Idx[field + "-s"] = input;
@@ -114,13 +114,18 @@ namespace Exceptionless {
             if (ev == null || !ev.IsSessionStart())
                 return null;
 
-            if (ev.Data.TryGetValue(Event.KnownDataKeys.SessionEnd, out object end) && end is DateTime)
-                return (DateTime)end;
+            if (ev.Data.TryGetValue(Event.KnownDataKeys.SessionEnd, out object sessionEnd)) {
+                if (sessionEnd is DateTimeOffset dto)
+                    return dto.UtcDateTime;
+                
+                if (sessionEnd is DateTime dt)
+                    return dt;
+            }
 
             return null;
         }
 
-        public static bool UpdateSessionStart(this PersistentEvent ev, DateTime lastActivityUtc, bool isSessionEnd = false, bool hasError = false) {
+        public static bool UpdateSessionStart(this PersistentEvent ev, DateTime lastActivityUtc, bool isSessionEnd = false) {
             if (ev == null || !ev.IsSessionStart())
                 return false;
 

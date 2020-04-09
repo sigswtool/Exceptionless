@@ -10,7 +10,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Services {
-    public class SlackServiceTests : TestWithServices {
+    public sealed class SlackServiceTests : TestWithServices {
         private readonly Project _project;
         private readonly SlackService _slackService;
 
@@ -183,7 +183,7 @@ namespace Exceptionless.Tests.Services {
             ev.StackId = TestConstants.StackId;
             ev.Date = SystemClock.OffsetUtcNow;
 
-            await _slackService.SendEventNoticeAsync(ev, _project, RandomData.GetBool(), RandomData.GetBool(), 1);
+            await _slackService.SendEventNoticeAsync(ev, _project, RandomData.GetBool(), RandomData.GetBool());
             await RunWebHookJobAsync();
         }
 

@@ -9,15 +9,14 @@ using Exceptionless.Core.Repositories.Configuration;
 using FluentValidation;
 using Foundatio.Repositories;
 using Foundatio.Repositories.Models;
-using Microsoft.Extensions.Options;
 using Nest;
 
 namespace Exceptionless.Core.Repositories {
     public class OrganizationRepository : RepositoryBase<Organization>, IOrganizationRepository {
         private readonly BillingPlans _plans;
 
-        public OrganizationRepository(ExceptionlessElasticConfiguration configuration, IValidator<Organization> validator, BillingPlans plans, IOptions<AppOptions> options)
-            : base(configuration.Organizations.Organization, validator, options) {
+        public OrganizationRepository(ExceptionlessElasticConfiguration configuration, IValidator<Organization> validator, BillingPlans plans, AppOptions options)
+            : base(configuration.Organizations, validator, options) {
             _plans = plans;
         }
 
@@ -82,7 +81,7 @@ namespace Exceptionless.Core.Repositories {
                 //    query.WithSortDescending((Organization o) => o.TotalEventCount);
                 //    break;
                 default:
-                    query.SortAscending((Organization o) => o.Name.Suffix("keyword"));
+                    query.SortAscending(o => o.Name.Suffix("keyword"));
                     break;
             }
 

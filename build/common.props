@@ -1,15 +1,11 @@
-<Project ToolsVersion="15.0">
-
-  <PropertyGroup Label="Version">
-    <VersionPrefix>5.0</VersionPrefix>
-    <VersionSuffix>0-dev</VersionSuffix>
-    <Version>$(VersionPrefix).$(VersionSuffix)</Version>
-  </PropertyGroup>
+<Project>
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
     <Product>Exceptionless</Product>
-    <Copyright>Copyright (c) 2019 Exceptionless.  All rights reserved.</Copyright>
+    <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <Copyright>Copyright (c) 2020 Exceptionless.  All rights reserved.</Copyright>
     <RepositoryUrl>https://github.com/exceptionless/exceptionless</RepositoryUrl>
     <Authors>Exceptionless</Authors>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
@@ -20,8 +16,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0-beta-63127-02" PrivateAssets="All"/>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
     <PackageReference Include="AsyncFixer" Version="1.1.6" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
   </ItemGroup>
 
 </Project>

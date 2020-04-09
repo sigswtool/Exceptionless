@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core.Extensions;
-using Exceptionless.Core.Messaging.Models;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Repositories.Configuration;
 using Exceptionless.Core.Repositories.Queries;
@@ -12,8 +11,8 @@ using Foundatio.Caching;
 using Foundatio.Repositories;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Nest;
 
 namespace Exceptionless.Core.Repositories {
@@ -21,11 +20,11 @@ namespace Exceptionless.Core.Repositories {
         private const string STACKING_VERSION = "v2";
         private readonly IEventRepository _eventRepository;
 
-        public StackRepository(ExceptionlessElasticConfiguration configuration, IEventRepository eventRepository, IValidator<Stack> validator, IOptions<AppOptions> options)
-            : base(configuration.Stacks.Stack, validator, options) {
+        public StackRepository(ExceptionlessElasticConfiguration configuration, IEventRepository eventRepository, IValidator<Stack> validator, AppOptions options)
+            : base(configuration.Stacks, validator, options) {
             _eventRepository = eventRepository;
             DocumentsChanging.AddHandler(OnDocumentChangingAsync);
-            FieldsRequiredForRemove.Add(ElasticType.GetFieldName(s => s.SignatureHash));
+            AddPropertyRequiredForRemove(s => s.SignatureHash);
         }
 
         private async Task OnDocumentChangingAsync(object sender, DocumentsChangeEventArgs<Stack> args) {
@@ -74,19 +73,23 @@ if (ctx._source.total_occurrences == 0 || parseDate(ctx._source.first_occurrence
 if (parseDate(ctx._source.last_occurrence).isBefore(parseDate(params.maxOccurrenceDateUtc))) {
   ctx._source.last_occurrence = params.maxOccurrenceDateUtc;
 }
+if (parseDate(ctx._source.updated_utc).isBefore(parseDate(params.updatedUtc))) {
+  ctx._source.updated_utc = params.updatedUtc;
+}
 ctx._source.total_occurrences += params.count;";
 
-            var request = new UpdateRequest<Stack, Stack>(GetIndexById(stackId), ElasticType.Type, stackId) {
-                Script = new InlineScript(script.Replace("\r\n", String.Empty).Replace("    ", " ")) {
+            var request = new UpdateRequest<Stack, Stack>(ElasticIndex.GetIndex(stackId), stackId) {
+                Script = new InlineScript(script.TrimScript()) {
                     Params = new Dictionary<string, object>(3) {
                         { "minOccurrenceDateUtc", minOccurrenceDateUtc },
                         { "maxOccurrenceDateUtc", maxOccurrenceDateUtc },
-                        { "count", count }
+                        { "count", count },
+                        { "updatedUtc", SystemClock.UtcNow }
                     }
                 }
             };
-
-            var result = await _client.UpdateAsync<Stack>(request).AnyContext();
+            
+            var result = await _client.UpdateAsync(request).AnyContext();
             if (!result.IsValid) {
                 _logger.LogError(result.OriginalException, "Error occurred incrementing total event occurrences on stack {stack}. Error: {Message}", stackId, result.ServerError?.Error);
                 return result.ServerError?.Status == 404;
@@ -109,15 +112,15 @@ ctx._source.total_occurrences += params.count;";
 
             var hit = await FindOneAsync(q => q.Project(projectId).ElasticFilter(Query<Stack>.Term(s => s.SignatureHash, signatureHash))).AnyContext();
             if (IsCacheEnabled && hit != null)
-                await Cache.SetAsync(key, hit.Document, TimeSpan.FromSeconds(((StackIndexType)ElasticType).DefaultCacheExpirationSeconds)).AnyContext();
+                await Cache.SetAsync(key, hit.Document, TimeSpan.FromSeconds(((StackIndex)ElasticIndex).DefaultCacheExpirationSeconds)).AnyContext();
 
             return hit?.Document;
         }
 
-        public Task<FindResults<Stack>> GetByFilterAsync(ExceptionlessSystemFilter systemFilter, string userFilter, string sort, string field, DateTime utcStart, DateTime utcEnd, CommandOptionsDescriptor<Stack> options = null) {
+        public Task<FindResults<Stack>> GetByFilterAsync(AppFilter systemFilter, string userFilter, string sort, string field, DateTime utcStart, DateTime utcEnd, CommandOptionsDescriptor<Stack> options = null) {
             IRepositoryQuery<Stack> query = new RepositoryQuery<Stack>()
-                .DateRange(utcStart, utcEnd, field ?? ElasticType.GetFieldName(s => s.LastOccurrence))
-                .SystemFilter(systemFilter)
+                .DateRange(utcStart, utcEnd, field ?? InferField(s => s.LastOccurrence))
+                .AppFilter(systemFilter)
                 .FilterExpression(userFilter);
 
             query = !String.IsNullOrEmpty(sort) ? query.SortExpression(sort) : query.SortDescending(s => s.LastOccurrence);

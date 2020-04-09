@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Amazon;
@@ -13,13 +13,17 @@ using Exceptionless.Core;
 using Exceptionless.Core.Configuration;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Geo;
+using Exceptionless.Core.Jobs;
+using Exceptionless.Core.Jobs.Elastic;
 using Exceptionless.Core.Mail;
 using Exceptionless.Core.Queues.Models;
 using Exceptionless.Core.Utility;
 using Exceptionless.Insulation.Geo;
+using Exceptionless.Insulation.HealthChecks;
 using Exceptionless.Insulation.Mail;
 using Exceptionless.Insulation.Redis;
 using Foundatio.Caching;
+using Foundatio.Hosting.Startup;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Foundatio.Metrics;
@@ -28,14 +32,15 @@ using Foundatio.Serializer;
 using Foundatio.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Serilog.Sinks.Exceptionless;
 using StackExchange.Redis;
+using QueueOptions = Exceptionless.Core.Configuration.QueueOptions;
 
 namespace Exceptionless.Insulation {
     public class Bootstrapper {
-        public static void RegisterServices(IServiceProvider serviceProvider, IServiceCollection services, AppOptions appOptions, bool runMaintenanceTasks) {
+        public static void RegisterServices(IServiceCollection services, AppOptions appOptions, bool runMaintenanceTasks) {
             if (!String.IsNullOrEmpty(appOptions.ExceptionlessApiKey) && !String.IsNullOrEmpty(appOptions.ExceptionlessServerUrl)) {
                 var client = ExceptionlessClient.Default;
                 client.Configuration.ServerUrl = appOptions.ExceptionlessServerUrl;
@@ -57,14 +62,48 @@ namespace Exceptionless.Insulation {
             if (!String.IsNullOrEmpty(appOptions.GoogleGeocodingApiKey))
                 services.ReplaceSingleton<IGeocodeService>(s => new GoogleGeocodeService(appOptions.GoogleGeocodingApiKey));
 
-            RegisterCache(services, serviceProvider.GetRequiredService<IOptions<CacheOptions>>().Value);
-            RegisterMessageBus(services, serviceProvider.GetRequiredService<IOptions<MessageBusOptions>>().Value);
-            RegisterMetric(services, serviceProvider.GetRequiredService<IOptions<MetricOptions>>().Value);
-            RegisterQueue(services, serviceProvider.GetRequiredService<IOptions<QueueOptions>>().Value, runMaintenanceTasks);
-            RegisterStorage(services, serviceProvider.GetRequiredService<IOptions<StorageOptions>>().Value);
+            if (!String.IsNullOrEmpty(appOptions.MaxMindGeoIpKey))
+                services.ReplaceSingleton<IGeoIpService, MaxMindGeoIpService>();
+            
+            RegisterCache(services, appOptions.CacheOptions);
+            RegisterMessageBus(services, appOptions.MessageBusOptions);
+            RegisterMetric(services, appOptions.MetricOptions);
+            RegisterQueue(services, appOptions.QueueOptions, runMaintenanceTasks);
+            RegisterStorage(services, appOptions.StorageOptions);
 
-            if (appOptions.AppMode != AppMode.Development)
-                services.ReplaceSingleton<IMailSender, MailKitMailSender>();
+            var healthCheckBuilder = RegisterHealthChecks(services, appOptions);
+
+            if (appOptions.AppMode != AppMode.Development) {
+                if (!String.IsNullOrEmpty(appOptions.EmailOptions.SmtpHost)) {
+                    services.ReplaceSingleton<IMailSender, MailKitMailSender>();
+                    healthCheckBuilder.Add(new HealthCheckRegistration("Mail", s => s.GetRequiredService<IMailSender>() as MailKitMailSender, null, new[] { "Mail", "MailMessage", "AllJobs" }));
+                }
+            }
+        }
+
+        private static IHealthChecksBuilder RegisterHealthChecks(IServiceCollection services, AppOptions appOptions) {
+            services.AddStartupActionToWaitForHealthChecks("Critical");
+
+            return services.AddHealthChecks()
+                .AddCheckForStartupActions("Critical")
+
+                .AddAutoNamedCheck<ElasticsearchHealthCheck>("Critical")
+                .AddAutoNamedCheck<CacheHealthCheck>("Critical")
+                .AddAutoNamedCheck<StorageHealthCheck>("EventPosts", "AllJobs")
+                
+                .AddAutoNamedCheck<QueueHealthCheck<EventPost>>("EventPosts", "AllJobs")
+                .AddAutoNamedCheck<QueueHealthCheck<EventUserDescription>>("EventUserDescriptions", "AllJobs")
+                .AddAutoNamedCheck<QueueHealthCheck<EventNotificationWorkItem>>("EventNotifications", "AllJobs")
+                .AddAutoNamedCheck<QueueHealthCheck<WebHookNotification>>("WebHooks", "AllJobs")
+                .AddAutoNamedCheck<QueueHealthCheck<MailMessage>>("AllJobs")
+                .AddAutoNamedCheck<QueueHealthCheck<WorkItemData>>("WorkItem", "AllJobs")
+
+                .AddAutoNamedCheck<CloseInactiveSessionsJob>("AllJobs")
+                .AddAutoNamedCheck<DailySummaryJob>("AllJobs")
+                .AddAutoNamedCheck<DownloadGeoIPDatabaseJob>("AllJobs")
+                .AddAutoNamedCheck<MaintainIndexesJob>("AllJobs")
+                .AddAutoNamedCheck<RetentionLimitsJob>("AllJobs")
+                .AddAutoNamedCheck<StackEventCountJob>("AllJobs");
         }
 
         private static void RegisterCache(IServiceCollection container, CacheOptions options) {
@@ -86,7 +125,14 @@ namespace Exceptionless.Insulation {
 
                 container.ReplaceSingleton<IMessageBus>(s => new RedisMessageBus(new RedisMessageBusOptions {
                     Subscriber = s.GetRequiredService<ConnectionMultiplexer>().GetSubscriber(),
-                    Topic = $"{options.ScopePrefix}messages",
+                    Topic = options.Topic,
+                    Serializer = s.GetRequiredService<ISerializer>(),
+                    LoggerFactory = s.GetRequiredService<ILoggerFactory>()
+                }));
+            } else if (String.Equals(options.Provider, "rabbitmq")) {
+                container.ReplaceSingleton<IMessageBus>(s => new RabbitMQMessageBus(new RabbitMQMessageBusOptions {
+                    ConnectionString = options.ConnectionString,
+                    Topic = options.Topic,
                     Serializer = s.GetRequiredService<ISerializer>(),
                     LoggerFactory = s.GetRequiredService<ILoggerFactory>()
                 }));
@@ -181,7 +227,7 @@ namespace Exceptionless.Insulation {
                 container.ReplaceSingleton(s => CreateSQSQueue<WebHookNotification>(s, options));
                 container.ReplaceSingleton(s => CreateSQSQueue<MailMessage>(s, options));
                 container.ReplaceSingleton(s => CreateSQSQueue<WorkItemData>(s, options, workItemTimeout: TimeSpan.FromHours(1)));
-            }  
+            }
         }
 
         private static void RegisterStorage(IServiceCollection container, StorageOptions options) {

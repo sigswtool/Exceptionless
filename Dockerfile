@@ -1,8 +1,5 @@
-FROM microsoft/dotnet:2.2.103-sdk AS build
+FROM mcr.microsoft.com/dotnet/core/sdk:3.1 AS build
 WORKDIR /app
-
-ARG VERSION_SUFFIX=0-dev
-ENV VERSION_SUFFIX=$VERSION_SUFFIX
 
 COPY ./*.sln ./NuGet.Config ./
 COPY ./build/*.props ./build/
@@ -19,7 +16,7 @@ RUN dotnet restore
 
 # Copy everything else and build app
 COPY . .
-RUN dotnet build --version-suffix $VERSION_SUFFIX -c Release
+RUN dotnet build -c Release
 
 # testrunner
 
@@ -32,14 +29,11 @@ ENTRYPOINT dotnet test --results-directory /app/artifacts --logger:trx
 FROM build AS job-publish
 WORKDIR /app/src/Exceptionless.Job
 
-ARG VERSION_SUFFIX=0-dev
-ENV VERSION_SUFFIX=$VERSION_SUFFIX
-
-RUN dotnet publish --version-suffix $VERSION_SUFFIX -c Release -o out
+RUN dotnet publish -c Release -o out
 
 # job
 
-FROM microsoft/dotnet:2.2.0-runtime AS job
+FROM mcr.microsoft.com/dotnet/core/aspnet:3.1 AS job
 WORKDIR /app
 COPY --from=job-publish /app/src/Exceptionless.Job/out ./
 ENTRYPOINT [ "dotnet", "Exceptionless.Job.dll" ]
@@ -49,14 +43,11 @@ ENTRYPOINT [ "dotnet", "Exceptionless.Job.dll" ]
 FROM build AS api-publish
 WORKDIR /app/src/Exceptionless.Web
 
-ARG VERSION_SUFFIX=0-dev
-ENV VERSION_SUFFIX=$VERSION_SUFFIX
-
-RUN dotnet publish --version-suffix $VERSION_SUFFIX -c Release -o out
+RUN dotnet publish -c Release -o out
 
 # api
 
-FROM microsoft/dotnet:2.2.0-aspnetcore-runtime AS api
+FROM mcr.microsoft.com/dotnet/core/aspnet:3.1 AS api
 WORKDIR /app
 COPY --from=api-publish /app/src/Exceptionless.Web/out ./
 ENTRYPOINT [ "dotnet", "Exceptionless.Web.dll" ]

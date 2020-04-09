@@ -31,7 +31,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
 
@@ -50,7 +49,7 @@ namespace Exceptionless.Web.Controllers {
         private readonly FormattingPluginManager _formattingPluginManager;
         private readonly ICacheClient _cache;
         private readonly JsonSerializerSettings _jsonSerializerSettings;
-        private readonly IOptions<AppOptions> _appOptions;
+        private readonly AppOptions _appOptions;
 
         public EventController(IEventRepository repository,
             IOrganizationRepository organizationRepository,
@@ -64,7 +63,7 @@ namespace Exceptionless.Web.Controllers {
             JsonSerializerSettings jsonSerializerSettings,
             IMapper mapper,
             PersistentEventQueryValidator validator,
-            IOptions<AppOptions> appOptions,
+            AppOptions appOptions,
             ILoggerFactory loggerFactory) : base(repository, mapper, validator, loggerFactory) {
             _organizationRepository = organizationRepository;
             _projectRepository = projectRepository;
@@ -77,8 +76,8 @@ namespace Exceptionless.Web.Controllers {
             _jsonSerializerSettings = jsonSerializerSettings;
             _appOptions = appOptions;
 
-            AllowedDateFields.Add(EventIndexType.Alias.Date);
-            DefaultDateField = EventIndexType.Alias.Date;
+            AllowedDateFields.Add(EventIndex.Alias.Date);
+            DefaultDateField = EventIndex.Alias.Date;
         }
 
         /// <summary>
@@ -96,8 +95,8 @@ namespace Exceptionless.Web.Controllers {
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(CountResult.Empty);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
             return await GetCountImplAsync(sf, ti, filter, aggregations);
         }
 
@@ -120,8 +119,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
             return await GetCountImplAsync(sf, ti, filter, aggregations);
         }
 
@@ -148,8 +147,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
             return await GetCountImplAsync(sf, ti, filter, aggregations);
         }
 
@@ -183,8 +182,8 @@ namespace Exceptionless.Web.Controllers {
             if (!pr.IsValid)
                 return OkWithLinks(model, GetEntityResourceLink<Stack>(model.StackId, "parent"));
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
             var result = await _repository.GetPreviousAndNextEventIdsAsync(model, sf, filter, ti.Range.UtcStart, ti.Range.UtcEnd);
             return OkWithLinks(model, new [] { GetEntityResourceLink(result.Previous, "previous"), GetEntityResourceLink(result.Next, "next"), GetEntityResourceLink<Stack>(model.StackId, "parent") });
         }
@@ -199,20 +198,21 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         [HttpGet]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetAsync(string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetAsync(string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var organizations = await GetSelectedOrganizationsAsync(_organizationRepository, _projectRepository, _stackRepository, filter);
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
-            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
+            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit, after);
         }
 
-        private async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetInternalAsync(ExceptionlessSystemFilter sf, TimeInfo ti, string filter = null, string sort = null, string mode = null, int page = 1, int limit = 10, bool usesPremiumFeatures = false) {
+        private async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetInternalAsync(AppFilter sf, TimeInfo ti, string filter = null, string sort = null, string mode = null, int page = 1, int limit = 10, string after = null, bool usesPremiumFeatures = false) {
             page = GetPage(page);
             limit = GetLimit(limit);
             int skip = GetSkip(page, limit);
@@ -224,10 +224,11 @@ namespace Exceptionless.Web.Controllers {
                 return BadRequest(pr.Message);
 
             sf.UsesPremiumFeatures = pr.UsesPremiumFeatures || usesPremiumFeatures;
+            bool useSearchAfter = !String.IsNullOrEmpty(after);
 
             FindResults<PersistentEvent> events;
             try {
-                events = await _repository.GetByFilterAsync(ShouldApplySystemFilter(sf, filter) ? sf : null, filter, sort, ti.Field, ti.Range.UtcStart, ti.Range.UtcEnd, o => o.PageNumber(page).PageLimit(limit));
+                events = await _repository.GetByFilterAsync(ShouldApplySystemFilter(sf, filter) ? sf : null, filter, sort, ti.Field, ti.Range.UtcStart, ti.Range.UtcEnd, o => useSearchAfter ? o.SearchAfterPaging().SearchAfter(after).PageLimit(limit) : o.PageNumber(page).PageLimit(limit));
             } catch (ApplicationException ex) {
                 using (_logger.BeginScope(new ExceptionlessState().Property("Search Filter", new { SystemFilter = sf, UserFilter = filter, Time = ti, Page = page, Limit = limit }).Tag("Search").Identity(CurrentUser.EmailAddress).Property("User", CurrentUser).SetHttpContext(HttpContext)))
                     _logger.LogError(ex, "An error has occurred. Please check your search filter.");
@@ -260,12 +261,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The organization could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/organizations/{organizationId:objectid}/events")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByOrganizationAsync(string organizationId = null, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByOrganizationAsync(string organizationId = null, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var organization = await GetOrganizationAsync(organizationId);
             if (organization == null)
                 return NotFound();
@@ -273,9 +275,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
-            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
+            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit, after);
         }
 
         /// <summary>
@@ -289,12 +291,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The project could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/projects/{projectId:objectid}/events")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByProjectAsync(string projectId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByProjectAsync(string projectId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var project = await GetProjectAsync(projectId);
             if (project == null)
                 return NotFound();
@@ -306,9 +309,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
-            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
+            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit, after);
         }
 
         /// <summary>
@@ -322,12 +325,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The stack could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/stacks/{stackId:objectid}/events")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByStackAsync(string stackId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByStackAsync(string stackId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var stack = await GetStackAsync(stackId);
             if (stack == null)
                 return NotFound();
@@ -339,9 +343,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(stack, _appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(stack, organization);
-            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(stack, _appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(stack, organization);
+            return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit, after);
         }
 
         /// <summary>
@@ -352,17 +356,18 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         [HttpGet("by-ref/{referenceId:identifier}")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByReferenceIdAsync(string referenceId, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByReferenceIdAsync(string referenceId, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var organizations = await GetSelectedOrganizationsAsync(_organizationRepository, _projectRepository, _stackRepository);
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(null, offset, organizations.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
-            return await GetInternalAsync(sf, ti, String.Concat("reference:", referenceId), null, mode, page, limit);
+            var ti = GetTimeInfo(null, offset, organizations.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
+            return await GetInternalAsync(sf, ti, String.Concat("reference:", referenceId), null, mode, page, limit, after);
         }
 
         /// <summary>
@@ -374,12 +379,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The project could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/projects/{projectId:objectid}/events/by-ref/{referenceId:identifier}")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByReferenceIdAsync(string referenceId, string projectId, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetByReferenceIdAsync(string referenceId, string projectId, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var project = await GetProjectAsync(projectId);
             if (project == null)
                 return NotFound();
@@ -391,9 +397,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(null, offset, organization.GetRetentionUtcCutoff(project, _appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
-            return await GetInternalAsync(sf, ti, String.Concat("reference:", referenceId), null,  mode, page, limit);
+            var ti = GetTimeInfo(null, offset, organization.GetRetentionUtcCutoff(project, _appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
+            return await GetInternalAsync(sf, ti, String.Concat("reference:", referenceId), null,  mode, page, limit, after);
         }
 
         /// <summary>
@@ -407,17 +413,18 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         [HttpGet("sessions/{sessionId:identifier}")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetBySessionIdAsync(string sessionId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetBySessionIdAsync(string sessionId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var organizations = await GetSelectedOrganizationsAsync(_organizationRepository, _projectRepository, _stackRepository, filter);
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
-            return await GetInternalAsync(sf, ti, $"(reference:{sessionId} OR ref.session:{sessionId}) {filter}", sort, mode, page, limit, true);
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
+            return await GetInternalAsync(sf, ti, $"(reference:{sessionId} OR ref.session:{sessionId}) {filter}", sort, mode, page, limit, after, true);
         }
 
         /// <summary>
@@ -432,12 +439,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The project could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/projects/{projectId:objectid}/events/sessions/{sessionId:identifier}")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetBySessionIdAndProjectAsync(string sessionId, string projectId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetBySessionIdAndProjectAsync(string sessionId, string projectId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var project = await GetProjectAsync(projectId);
             if (project == null)
                 return NotFound();
@@ -449,9 +457,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
-            return await GetInternalAsync(sf, ti, $"(reference:{sessionId} OR ref.session:{sessionId}) {filter}", sort, mode, page, limit, true);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
+            return await GetInternalAsync(sf, ti, $"(reference:{sessionId} OR ref.session:{sessionId}) {filter}", sort, mode, page, limit, after, true);
         }
 
         /// <summary>
@@ -464,17 +472,18 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         [HttpGet("sessions")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetSessionsAsync(string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetSessionsAsync(string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var organizations = await GetSelectedOrganizationsAsync(_organizationRepository, _projectRepository, _stackRepository, filter);
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
-            return await GetInternalAsync(sf, ti, $"type:{Event.KnownTypes.Session} {filter}", sort, mode, page, limit, true);
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
+            return await GetInternalAsync(sf, ti, $"type:{Event.KnownTypes.Session} {filter}", sort, mode, page, limit, after, true);
         }
 
         /// <summary>
@@ -488,12 +497,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The project could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/organizations/{organizationId:objectid}/events/sessions")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetSessionByOrganizationAsync(string organizationId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetSessionByOrganizationAsync(string organizationId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var organization = await GetOrganizationAsync(organizationId);
             if (organization == null)
                 return NotFound();
@@ -501,9 +511,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
-            return await GetInternalAsync(sf, ti, $"type:{Event.KnownTypes.Session} {filter}", sort, mode, page, limit, true);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
+            return await GetInternalAsync(sf, ti, $"type:{Event.KnownTypes.Session} {filter}", sort, mode, page, limit, after, true);
         }
 
         /// <summary>
@@ -517,12 +527,13 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="mode">If no mode is set then the whole event object will be returned. If the mode is set to summary than a light weight object will be returned.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
+        /// <param name="after">The after parameter is a cursor used for pagination and defines your place in the list of results. Pass in the last event id in the previous call to fetch the next page of the list.</param>
         /// <response code="400">Invalid filter.</response>
         /// <response code="404">The project could not be found.</response>
         /// <response code="426">Unable to view event occurrences for the suspended organization.</response>
         [HttpGet("~/" + API_PREFIX + "/projects/{projectId:objectid}/events/sessions")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetSessionByProjectAsync(string projectId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10) {
+        public async Task<ActionResult<IReadOnlyCollection<PersistentEvent>>> GetSessionByProjectAsync(string projectId, string filter = null, string sort = null, string time = null, string offset = null, string mode = null, int page = 1, int limit = 10, string after = null) {
             var project = await GetProjectAsync(projectId);
             if (project == null)
                 return NotFound();
@@ -534,9 +545,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view event occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
-            return await GetInternalAsync(sf, ti, $"type:{Event.KnownTypes.Session} {filter}", sort, mode, page, limit, true);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _appOptions.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
+            return await GetInternalAsync(sf, ti, $"type:{Event.KnownTypes.Session} {filter}", sort, mode, page, limit, after, true);
         }
 
         /// <summary>
@@ -550,6 +561,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">The event occurrence with the specified reference id could not be found.</response>
         [HttpPost("by-ref/{referenceId:identifier}/user-description")]
         [HttpPost("~/" + API_PREFIX + "/projects/{projectId:objectid}/events/by-ref/{referenceId:identifier}/user-description")]
+        [Consumes("application/json")]
         [ConfigurationResponseFilter]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         public async Task<IActionResult> SetUserDescriptionAsync(string referenceId, UserDescription description, string projectId = null) {
@@ -587,6 +599,7 @@ namespace Exceptionless.Web.Controllers {
 
         [Obsolete]
         [HttpPatch("~/api/v1/error/{id:objectid}")]
+        [Consumes("application/json")]
         [ConfigurationResponseFilter]
         public async Task<IActionResult> LegacyPatchAsync(string id, Delta<UpdateEvent> changes) {
             if (changes == null)
@@ -613,7 +626,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">No project was found.</response>
         [HttpGet("session/heartbeat")]
         public async Task<IActionResult> RecordHeartbeatAsync(string id = null, bool close = false) {
-            if (_appOptions.Value.EventSubmissionDisabled || String.IsNullOrEmpty(id))
+            if (_appOptions.EventSubmissionDisabled || String.IsNullOrEmpty(id))
                 return Ok();
 
             string projectId = Request.GetDefaultProjectId();
@@ -628,7 +641,7 @@ namespace Exceptionless.Web.Controllers {
                     close ? _cache.SetAsync(String.Concat(heartbeatCacheKey, "-close"), true, TimeSpan.FromHours(2)) : Task.CompletedTask
                 );
             } catch (Exception ex) {
-                if (projectId != _appOptions.Value.InternalProjectId) {
+                if (projectId != _appOptions.InternalProjectId) {
                     using (_logger.BeginScope(new ExceptionlessState().Project(projectId).Identity(CurrentUser?.EmailAddress).Property("User", CurrentUser).Property("Id", id).Property("Close", close).SetHttpContext(HttpContext)))
                         _logger.LogError(ex, "Error enqueuing session heartbeat.");
                 }
@@ -830,7 +843,7 @@ namespace Exceptionless.Web.Controllers {
                 }
 
                 var stream = new MemoryStream(ev.GetBytes(_jsonSerializerSettings));
-                await _eventPostService.EnqueueAsync(new EventPost(_appOptions.Value.EnableArchive) {
+                await _eventPostService.EnqueueAsync(new EventPost(_appOptions.EnableArchive) {
                     ApiVersion = apiVersion,
                     CharSet = charSet,
                     ContentEncoding = contentEncoding,
@@ -841,7 +854,7 @@ namespace Exceptionless.Web.Controllers {
                     UserAgent = userAgent
                 }, stream);
             } catch (Exception ex) {
-                if (projectId != _appOptions.Value.InternalProjectId) {
+                if (projectId != _appOptions.InternalProjectId) {
                     using (_logger.BeginScope(new ExceptionlessState().Project(projectId).Identity(CurrentUser?.EmailAddress).Property("User", CurrentUser).SetHttpContext(HttpContext)))
                         _logger.LogError(ex, "Error enqueuing event post.");
                 }
@@ -854,6 +867,7 @@ namespace Exceptionless.Web.Controllers {
 
         [Obsolete]
         [HttpPost("~/api/v1/error")]
+        [Consumes("application/json", "text/plain")]
         [ConfigurationResponseFilter]
         public Task<IActionResult> LegacyPostAsync([UserAgent] string userAgent = null) {
             return PostAsync(null, 1, userAgent);
@@ -862,6 +876,7 @@ namespace Exceptionless.Web.Controllers {
         [Obsolete]
         [HttpPost("~/api/v1/events")]
         [HttpPost("~/api/v1/projects/{projectId:objectid}/events")]
+        [Consumes("application/json", "text/plain")]
         [ConfigurationResponseFilter]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         public Task <IActionResult> PostV1Async(string projectId = null, [UserAgent]string userAgent = null) {
@@ -917,6 +932,7 @@ namespace Exceptionless.Web.Controllers {
         ///  <response code="400">No project id specified and no default project was found.</response>
         ///  <response code="404">No project was found.</response>
         [HttpPost]
+        [Consumes("application/json", "text/plain")]
         [ConfigurationResponseFilter]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         public Task<IActionResult> PostV2Async([UserAgent]string userAgent = null) {
@@ -973,6 +989,7 @@ namespace Exceptionless.Web.Controllers {
         ///  <response code="400">No project id specified and no default project was found.</response>
         ///  <response code="404">No project was found.</response>
         [HttpPost("~/api/v2/projects/{projectId:objectid}/events")]
+        [Consumes("application/json", "text/plain")]
         [ConfigurationResponseFilter]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         public Task <IActionResult> PostByProjectV2Async(string projectId = null, [UserAgent]string userAgent = null) {
@@ -1013,7 +1030,7 @@ namespace Exceptionless.Web.Controllers {
                     charSet = contentType.Charset.ToString();
                 }
 
-                await _eventPostService.EnqueueAsync(new EventPost(_appOptions.Value.EnableArchive) {
+                await _eventPostService.EnqueueAsync(new EventPost(_appOptions.EnableArchive) {
                     ApiVersion = apiVersion,
                     CharSet = charSet,
                     ContentEncoding = Request.Headers.TryGetAndReturn(Headers.ContentEncoding),
@@ -1024,7 +1041,7 @@ namespace Exceptionless.Web.Controllers {
                     UserAgent = userAgent,
                 }, Request.Body);
             } catch (Exception ex) {
-                if (projectId != _appOptions.Value.InternalProjectId) {
+                if (projectId != _appOptions.InternalProjectId) {
                     using (_logger.BeginScope(new ExceptionlessState().Project(projectId).Identity(CurrentUser?.EmailAddress).Property("User", CurrentUser).SetHttpContext(HttpContext)))
                         _logger.LogError(ex, "Error enqueuing event post.");
                 }
@@ -1052,7 +1069,7 @@ namespace Exceptionless.Web.Controllers {
 
         private Task<Organization> GetOrganizationAsync(string organizationId, bool useCache = true) {
             if (String.IsNullOrEmpty(organizationId) || !CanAccessOrganization(organizationId))
-                return null;
+                return Task.FromResult<Organization>(null);
 
             return _organizationRepository.GetByIdAsync(organizationId, o => o.Cache(useCache));
         }

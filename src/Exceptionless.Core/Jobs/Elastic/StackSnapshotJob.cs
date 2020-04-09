@@ -1,5 +1,4 @@
-﻿using System;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.Core.Repositories.Configuration;
 using Foundatio.Jobs;
@@ -15,8 +14,8 @@ namespace Exceptionless.Core.Jobs.Elastic {
 
         public StackSnapshotJob(ExceptionlessElasticConfiguration configuration, ILockProvider lockProvider, ILoggerFactory loggerFactory) : base(configuration.Client, lockProvider, loggerFactory) {
             _configuration = configuration;
-            Repository = configuration.Options.ScopePrefix + "ex_stacks";
-            IncludedIndexes.Add("stacks*");
+            Repository = configuration.Options.ScopePrefix + "stacks";
+            IncludedIndexes.Add(configuration.Stacks.Name + "*");
         }
 
         public override Task<JobResult> RunAsync(CancellationToken cancellationToken = new CancellationToken()) {

@@ -16,6 +16,7 @@ using Exceptionless.Core.Repositories;
 using Exceptionless.Core.Models.WorkItems;
 using Exceptionless.Core.Repositories.Configuration;
 using Exceptionless.Core.Repositories.Queries;
+using Exceptionless.Core.Utility;
 using Exceptionless.DateTimeExtensions;
 using Exceptionless.Web.Models;
 using Foundatio.Caching;
@@ -28,7 +29,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 
 namespace Exceptionless.Web.Controllers {
@@ -41,12 +41,13 @@ namespace Exceptionless.Web.Controllers {
         private readonly IEventRepository _eventRepository;
         private readonly IQueue<WorkItemData> _workItemQueue;
         private readonly IWebHookRepository _webHookRepository;
+        private readonly SemanticVersionParser _semanticVersionParser;
         private readonly WebHookDataPluginManager _webHookDataPluginManager;
         private readonly ICacheClient _cache;
         private readonly IQueue<WebHookNotification> _webHookNotificationQueue;
         private readonly BillingManager _billingManager;
         private readonly FormattingPluginManager _formattingPluginManager;
-        private readonly IOptions<AppOptions> _options;
+        private readonly AppOptions _options;
 
         public StackController(
             IStackRepository stackRepository,
@@ -60,11 +61,12 @@ namespace Exceptionless.Web.Controllers {
             ICacheClient cacheClient,
             BillingManager billingManager,
             FormattingPluginManager formattingPluginManager,
+            SemanticVersionParser semanticVersionParser,
             IMapper mapper,
             StackQueryValidator validator,
-            IOptions<AppOptions> options,
+            AppOptions options,
             ILoggerFactory loggerFactory
-            ) : base(stackRepository, mapper, validator, loggerFactory) {
+        ) : base(stackRepository, mapper, validator, loggerFactory) {
             _stackRepository = stackRepository;
             _organizationRepository = organizationRepository;
             _projectRepository = projectRepository;
@@ -76,10 +78,11 @@ namespace Exceptionless.Web.Controllers {
             _cache = cacheClient;
             _billingManager = billingManager;
             _formattingPluginManager = formattingPluginManager;
+            _semanticVersionParser = semanticVersionParser;
             _options = options;
 
-            AllowedDateFields.AddRange(new[] { StackIndexType.Alias.FirstOccurrence, StackIndexType.Alias.LastOccurrence });
-            DefaultDateField = StackIndexType.Alias.LastOccurrence;
+            AllowedDateFields.AddRange(new[] { StackIndex.Alias.FirstOccurrence, StackIndex.Alias.LastOccurrence });
+            DefaultDateField = StackIndex.Alias.LastOccurrence;
         }
 
         /// <summary>
@@ -105,13 +108,17 @@ namespace Exceptionless.Web.Controllers {
         /// <param name="version">A version number that the stack was fixed in.</param>
         /// <response code="404">One or more stacks could not be found.</response>
         [HttpPost("{ids:objectids}/mark-fixed")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         public async Task<ActionResult<WorkInProgressResult>> MarkFixedAsync(string ids, string version = null) {
-            version = version?.Trim();
             SemanticVersion semanticVersion = null;
-            if (!String.IsNullOrEmpty(version) && !SemanticVersion.TryParse(version, out semanticVersion))
-                return BadRequest("Invalid semantic version");
+            
+            if (!String.IsNullOrEmpty(version)) {
+                semanticVersion = await _semanticVersionParser.ParseAsync(version);
+                if (semanticVersion == null)
+                    return BadRequest("Invalid semantic version");
+            }
 
             var stacks = await GetModelsAsync(ids.FromDelimitedString(), false);
             if (!stacks.Any())
@@ -143,6 +150,7 @@ namespace Exceptionless.Web.Controllers {
         /// </summary>
         [HttpPost("~/api/v1/stack/markfixed")]
         [HttpPost("mark-fixed")]
+        [Consumes("application/json")]
         [ApiExplorerSettings(IgnoreApi = true)]
         public async Task<ActionResult<WorkInProgressResult>> MarkFixedAsync(JObject data) {
             string id = null;
@@ -169,6 +177,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="400">Invalid reference link.</response>
         /// <response code="404">The stack could not be found.</response>
         [HttpPost("{id:objectid}/add-link")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> AddLinkAsync(string id, ValueFromBody<string> url) {
             if (String.IsNullOrWhiteSpace(url?.Value))
@@ -191,6 +200,7 @@ namespace Exceptionless.Web.Controllers {
         /// </summary>
         [HttpPost("~/api/v1/stack/addlink")]
         [HttpPost("add-link")]
+        [Consumes("application/json")]
         [ApiExplorerSettings(IgnoreApi = true)]
         public async Task<IActionResult> AddLinkAsync(JObject data) {
             string id = null;
@@ -219,6 +229,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="400">Invalid reference link.</response>
         /// <response code="404">The stack could not be found.</response>
         [HttpPost("{id:objectid}/remove-link")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         public async Task<IActionResult> RemoveLinkAsync(string id, ValueFromBody<string> url) {
@@ -523,12 +534,12 @@ namespace Exceptionless.Web.Controllers {
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
             return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
         }
 
-        private async Task<ActionResult<IReadOnlyCollection<Stack>>> GetInternalAsync(ExceptionlessSystemFilter sf, TimeInfo ti, string filter = null, string sort = null, string mode = null, int page = 1, int limit = 10) {
+        private async Task<ActionResult<IReadOnlyCollection<Stack>>> GetInternalAsync(AppFilter sf, TimeInfo ti, string filter = null, string sort = null, string mode = null, int page = 1, int limit = 10) {
             page = GetPage(page);
             limit = GetLimit(limit);
             int skip = GetSkip(page, limit);
@@ -581,8 +592,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
             return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
         }
 
@@ -614,8 +625,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _options.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
             return await GetInternalAsync(sf, ti, filter, sort, mode, page, limit);
         }
 
@@ -636,8 +647,8 @@ namespace Exceptionless.Web.Controllers {
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(String.Concat("first|", time), offset, organizations.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
+            var ti = GetTimeInfo(String.Concat("first|", time), offset, organizations.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
             return await GetInternalAsync(sf, ti, filter, "-first", mode, page, limit);
         }
 
@@ -664,8 +675,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(String.Concat("first|", time), offset, organization.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
+            var ti = GetTimeInfo(String.Concat("first|", time), offset, organization.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
             return await GetInternalAsync(sf, ti, filter, "-first", mode, page, limit);
         }
 
@@ -696,8 +707,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(String.Concat("first|", time), offset, organization.GetRetentionUtcCutoff(project, _options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
+            var ti = GetTimeInfo(String.Concat("first|", time), offset, organization.GetRetentionUtcCutoff(project, _options.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
             return await GetInternalAsync(sf, ti, filter, "-first", mode, page, limit);
         }
 
@@ -718,9 +729,9 @@ namespace Exceptionless.Web.Controllers {
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(String.Concat(StackIndexType.Alias.LastOccurrence, "|", time), offset, organizations.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
-            return await GetInternalAsync(sf, ti, filter, String.Concat("-", StackIndexType.Alias.LastOccurrence), mode, page, limit);
+            var ti = GetTimeInfo(String.Concat(StackIndex.Alias.LastOccurrence, "|", time), offset, organizations.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
+            return await GetInternalAsync(sf, ti, filter, String.Concat("-", StackIndex.Alias.LastOccurrence), mode, page, limit);
         }
 
         /// <summary>
@@ -746,9 +757,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(String.Concat(StackIndexType.Alias.LastOccurrence, "|", time), offset, organization.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
-            return await GetInternalAsync(sf, ti, filter, String.Concat("-", StackIndexType.Alias.LastOccurrence), mode, page, limit);
+            var ti = GetTimeInfo(String.Concat(StackIndex.Alias.LastOccurrence, "|", time), offset, organization.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
+            return await GetInternalAsync(sf, ti, filter, String.Concat("-", StackIndex.Alias.LastOccurrence), mode, page, limit);
         }
 
         /// <summary>
@@ -778,9 +789,9 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(String.Concat(StackIndexType.Alias.LastOccurrence, "|", time), offset, organization.GetRetentionUtcCutoff(project, _options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
-            return await GetInternalAsync(sf, ti, filter, String.Concat("-", StackIndexType.Alias.LastOccurrence), mode, page, limit);
+            var ti = GetTimeInfo(String.Concat(StackIndex.Alias.LastOccurrence, "|", time), offset, organization.GetRetentionUtcCutoff(project, _options.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
+            return await GetInternalAsync(sf, ti, filter, String.Concat("-", StackIndex.Alias.LastOccurrence), mode, page, limit);
         }
 
         /// <summary>
@@ -800,8 +811,8 @@ namespace Exceptionless.Web.Controllers {
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
             return await GetAllByTermsAsync("cardinality:user sum:count~1 min:date max:date", sf, ti, filter, mode, page, limit);
         }
 
@@ -828,8 +839,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
             return await GetAllByTermsAsync("cardinality:user sum:count~1 min:date max:date", sf, ti, filter, mode, page, limit);
         }
 
@@ -860,8 +871,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _options.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
             return await GetAllByTermsAsync("cardinality:user sum:count~1 min:date max:date", sf, ti, filter, mode, page, limit);
         }
 
@@ -882,8 +893,8 @@ namespace Exceptionless.Web.Controllers {
             if (organizations.Count(o => !o.IsSuspended) == 0)
                 return Ok(EmptyModels);
 
-            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organizations) { IsUserOrganizationsFilter = true };
+            var ti = GetTimeInfo(time, offset, organizations.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
             return await GetAllByTermsAsync("-cardinality:user sum:count~1 min:date max:date", sf, ti, filter, mode, page, limit);
         }
 
@@ -910,8 +921,8 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(_options.MaximumRetentionDays));
+            var sf = new AppFilter(organization);
             return await GetAllByTermsAsync("-cardinality:user sum:count~1 min:date max:date", sf, ti, filter, mode, page, limit);
         }
 
@@ -942,12 +953,12 @@ namespace Exceptionless.Web.Controllers {
             if (organization.IsSuspended)
                 return PlanLimitReached("Unable to view stack occurrences for the suspended organization.");
 
-            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _options.Value.MaximumRetentionDays));
-            var sf = new ExceptionlessSystemFilter(project, organization);
+            var ti = GetTimeInfo(time, offset, organization.GetRetentionUtcCutoff(project, _options.MaximumRetentionDays));
+            var sf = new AppFilter(project, organization);
             return await GetAllByTermsAsync("-cardinality:user sum:count~1 min:date max:date", sf, ti, filter, mode, page, limit);
         }
 
-        private async Task<ActionResult<IReadOnlyCollection<Stack>>> GetAllByTermsAsync(string aggregations, ExceptionlessSystemFilter sf, TimeInfo ti, string filter = null, string mode = null, int page = 1, int limit = 10) {
+        private async Task<ActionResult<IReadOnlyCollection<Stack>>> GetAllByTermsAsync(string aggregations, AppFilter sf, TimeInfo ti, string filter = null, string mode = null, int page = 1, int limit = 10) {
             page = GetPage(page);
             limit = GetLimit(limit);
             int skip = GetSkip(page, limit);
@@ -961,7 +972,7 @@ namespace Exceptionless.Web.Controllers {
             sf.UsesPremiumFeatures = pr.UsesPremiumFeatures;
 
             try {
-                var systemFilter = new RepositoryQuery<PersistentEvent>().SystemFilter(ShouldApplySystemFilter(sf, filter) ? sf : null).DateRange(ti.Range.UtcStart, ti.Range.UtcEnd, (PersistentEvent e) => e.Date).Index(ti.Range.UtcStart, ti.Range.UtcEnd);
+                var systemFilter = new RepositoryQuery<PersistentEvent>().AppFilter(ShouldApplySystemFilter(sf, filter) ? sf : null).DateRange(ti.Range.UtcStart, ti.Range.UtcEnd, (PersistentEvent e) => e.Date).Index(ti.Range.UtcStart, ti.Range.UtcEnd);
                 var stackTerms = (await _eventRepository.CountBySearchAsync(systemFilter, filter, $"terms:(stack_id~{GetSkip(page + 1, limit) + 1} {aggregations})")).Aggregations.Terms<string>("terms_stack_id");
                 if (stackTerms == null || stackTerms.Buckets.Count == 0)
                     return Ok(EmptyModels);
@@ -1001,16 +1012,16 @@ namespace Exceptionless.Web.Controllers {
             return project;
         }
 
-        private async Task<ICollection<StackSummaryModel>> GetStackSummariesAsync(ICollection<Stack> stacks, ExceptionlessSystemFilter eventSystemFilter, TimeInfo ti) {
+        private async Task<ICollection<StackSummaryModel>> GetStackSummariesAsync(ICollection<Stack> stacks, AppFilter eventSystemFilter, TimeInfo ti) {
             if (stacks.Count == 0)
                 return new List<StackSummaryModel>();
 
-            var systemFilter = new RepositoryQuery<PersistentEvent>().SystemFilter(eventSystemFilter).DateRange(ti.Range.UtcStart, ti.Range.UtcEnd, (PersistentEvent e) => e.Date).Index(ti.Range.UtcStart, ti.Range.UtcEnd);
+            var systemFilter = new RepositoryQuery<PersistentEvent>().AppFilter(eventSystemFilter).DateRange(ti.Range.UtcStart, ti.Range.UtcEnd, (PersistentEvent e) => e.Date).Index(ti.Range.UtcStart, ti.Range.UtcEnd);
             var stackTerms = await _eventRepository.CountBySearchAsync(systemFilter, String.Join(" OR ", stacks.Select(r => $"stack:{r.Id}")), $"terms:(stack_id~{stacks.Count} cardinality:user sum:count~1 min:date max:date)");
             return await GetStackSummariesAsync(stacks, stackTerms.Aggregations.Terms<string>("terms_stack_id").Buckets, eventSystemFilter, ti);
         }
 
-        private async Task<ICollection<StackSummaryModel>> GetStackSummariesAsync(ICollection<Stack> stacks, IReadOnlyCollection<KeyedBucket<string>> stackTerms, ExceptionlessSystemFilter sf, TimeInfo ti) {
+        private async Task<ICollection<StackSummaryModel>> GetStackSummariesAsync(ICollection<Stack> stacks, IReadOnlyCollection<KeyedBucket<string>> stackTerms, AppFilter sf, TimeInfo ti) {
             if (stacks.Count == 0)
                 return new List<StackSummaryModel>(0);
 
@@ -1034,7 +1045,7 @@ namespace Exceptionless.Web.Controllers {
             }).ToList();
         }
 
-        private async Task<Dictionary<string, double>> GetUserCountByProjectIdsAsync(ICollection<Stack> stacks, ExceptionlessSystemFilter sf, DateTime utcStart, DateTime utcEnd) {
+        private async Task<Dictionary<string, double>> GetUserCountByProjectIdsAsync(ICollection<Stack> stacks, AppFilter sf, DateTime utcStart, DateTime utcEnd) {
             var scopedCacheClient = new ScopedCacheClient(_cache, $"Project:user-count:{utcStart.Floor(TimeSpan.FromMinutes(15)).Ticks}-{utcEnd.Floor(TimeSpan.FromMinutes(15)).Ticks}");
             var projectIds = stacks.Select(s => s.ProjectId).Distinct().ToList();
             var cachedTotals = await scopedCacheClient.GetAllAsync<double>(projectIds);
@@ -1043,7 +1054,7 @@ namespace Exceptionless.Web.Controllers {
             if (totals.Count == projectIds.Count)
                 return totals;
 
-            var systemFilter = new RepositoryQuery<PersistentEvent>().SystemFilter(sf).DateRange(utcStart, utcEnd, (PersistentEvent e) => e.Date).Index(utcStart, utcEnd);
+            var systemFilter = new RepositoryQuery<PersistentEvent>().AppFilter(sf).DateRange(utcStart, utcEnd, (PersistentEvent e) => e.Date).Index(utcStart, utcEnd);
             var projects = cachedTotals.Where(kvp => !kvp.Value.HasValue).Select(kvp => new Project { Id = kvp.Key, OrganizationId = stacks.FirstOrDefault(s => s.ProjectId == kvp.Key)?.OrganizationId }).ToList();
             var countResult = await _eventRepository.CountBySearchAsync(systemFilter, projects.BuildFilter(), "terms:(project_id cardinality:user)");
 

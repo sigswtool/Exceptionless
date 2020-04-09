@@ -3,15 +3,14 @@ using System.Threading.Tasks;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Pipeline;
-using Microsoft.Extensions.Options;
 
 namespace Exceptionless.Core.Plugins.WebHook {
     [Priority(10)]
     public sealed class VersionOne : WebHookDataPluginBase {
-        public VersionOne(IOptions<AppOptions> options) : base(options) {}
+        public VersionOne(AppOptions options) : base(options) {}
 
         public override Task<object> CreateFromEventAsync(WebHookDataContext ctx) {
-            if (ctx.Version.Major != 1)
+            if (!String.Equals(ctx.Version, Models.WebHook.KnownVersions.Version1))
                 return Task.FromResult<object>(null);
 
             var error = ctx.Event.GetError();
@@ -21,7 +20,7 @@ namespace Exceptionless.Core.Plugins.WebHook {
             var requestInfo = ctx.Event.GetRequestInfo();
             var environmentInfo = ctx.Event.GetEnvironmentInfo();
 
-            return Task.FromResult<object>(new VersionOneWebHookEvent(_options.Value.BaseURL) {
+            return Task.FromResult<object>(new VersionOneWebHookEvent(_options.BaseURL) {
                 Id = ctx.Event.Id,
                 OccurrenceDate = ctx.Event.Date,
                 Tags = ctx.Event.Tags,
@@ -50,10 +49,10 @@ namespace Exceptionless.Core.Plugins.WebHook {
         }
 
         public override Task<object> CreateFromStackAsync(WebHookDataContext ctx) {
-            if (ctx.Version.Major != 1)
+            if (!String.Equals(ctx.Version, Models.WebHook.KnownVersions.Version1))
                 return Task.FromResult<object>(null);
 
-              return Task.FromResult<object>(new VersionOneWebHookStack(_options.Value.BaseURL) {
+              return Task.FromResult<object>(new VersionOneWebHookStack(_options.BaseURL) {
                 Id = ctx.Stack.Id,
                 Title = ctx.Stack.Title,
                 Description = ctx.Stack.Description,

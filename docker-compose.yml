@@ -1,26 +1,28 @@
-version: '3.4'
+version: '3.7'
 
 services:
   api:
     depends_on:
       - elasticsearch
+      - redis
     build:
       context: .
       target: api
-    image: exceptionless/api-ci:latest
+    image: exceptionless/api:latest
     environment:
-      AppMode: Development
-      ConnectionStrings__Cache: provider=redis
-      ConnectionStrings__Elasticsearch: server=http://elasticsearch:9200
-      #ConnectionStrings__Email: smtps://user:password@smtp.host.com:587
-      ConnectionStrings__MessageBus: provider=redis
-      #ConnectionStrings__Metrics: provider=statsd;server=statsd;
-      ConnectionStrings__Queue: provider=redis
-      ConnectionStrings__Redis: server=redis,abortConnect=false
-      ConnectionStrings__Storage: provider=folder;path=/app/storage
-      RunJobsInProcess: 'false'
+      EX_AppMode: Production
+      EX_BaseURL: http://ex-ui.localtest.me:5100 #URL to UI
+      EX_ConnectionStrings__Cache: provider=redis
+      EX_ConnectionStrings__Elasticsearch: server=http://elasticsearch:9200
+      #EX_ConnectionStrings__Email: smtps://user:password@smtp.host.com:587
+      EX_ConnectionStrings__MessageBus: provider=redis
+      #EX_ConnectionStrings__Metrics: provider=statsd;server=statsd;
+      EX_ConnectionStrings__Queue: provider=redis
+      EX_ConnectionStrings__Redis: server=redis,abortConnect=false
+      EX_ConnectionStrings__Storage: provider=folder;path=/app/storage
+      EX_RunJobsInProcess: 'false'
     ports:
-      - 5000:80
+      - 5000:80 # This can be commented out if using reverse proxy.
     volumes:
       - appdata:/app/storage
 
@@ -30,60 +32,74 @@ services:
     build:
       context: .
       target: job
-    image: exceptionless/job-ci:latest
-    command: run-all
+    image: exceptionless/job:latest
     environment:
-      AppMode: Development
-      ConnectionStrings__Cache: provider=redis
-      ConnectionStrings__Elasticsearch: server=http://elasticsearch:9200
-      #ConnectionStrings__Email: smtps://user:password@smtp.host.com:587
-      ConnectionStrings__MessageBus: provider=redis
-      #ConnectionStrings__Metrics: provider=statsd;server=statsd;
-      ConnectionStrings__Queue: provider=redis
-      ConnectionStrings__Redis: server=redis,abortConnect=false
-      ConnectionStrings__Storage: provider=folder;path=/app/storage
+      EX_AppMode: Production
+      EX_BaseURL: http://ex-ui.localtest.me:5100
+      EX_ConnectionStrings__Cache: provider=redis
+      EX_ConnectionStrings__Elasticsearch: server=http://elasticsearch:9200
+      #EX_ConnectionStrings__Email: smtps://user:password@smtp.host.com:587
+      EX_ConnectionStrings__MessageBus: provider=redis
+      #EX_ConnectionStrings__Metrics: provider=statsd;server=statsd;
+      EX_ConnectionStrings__Queue: provider=redis
+      EX_ConnectionStrings__Redis: server=redis,abortConnect=false
+      EX_ConnectionStrings__Storage: provider=folder;path=/app/storage
     volumes:
       - appdata:/app/storage
 
   ui:
-    image: exceptionless/ui-ci:latest
+    image: exceptionless/ui:latest
     environment:
       AppMode: Development
-      BaseUrl: http://ex-api.localtest.me:5000
+      EX_ApiUrl: http://ex-api.localtest.me:5000
+      #EX_Html5Mode: 'false'
+      #EX_EnableSsl: 'false'
+      #EX_EnableAccountCreation: 'false'
     ports:
-      - 5100:80
+      - 5100:80 # This can be commented out if using reverse proxy.
+
+#  reverseproxy:
+#    depends_on:
+#      - api
+#      - ui
+#    image: valian/docker-nginx-auto-ssl
+#    ports:
+#      - 80:80
+#      - 443:443
+#    volumes:
+#      - ssldata:/etc/resty-auto-ssl
+#    environment:
+#      ALLOWED_DOMAINS: '(ex-ui|ex-api).mydomainn.com'
+#      SITES: 'ex-ui.mydomainn.com=ui;ex-api.mydomainn.com=api'
 
   elasticsearch:
-    image: slideroom/elasticsearch:98
+    image: exceptionless/elasticsearch:7.6.0
     environment:
-      bootstrap.memory_lock: 'true'
       discovery.type: single-node
-      ES_JAVA_OPTS: '-Xms512m -Xmx512m'
       xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
       - 9200:9200
       - 9300:9300
-    ulimits:
-      memlock:
-        soft: -1 
-        hard: -1
     volumes:
-      - esdata:/usr/share/elasticsearch/data
-
+      - esdata7:/usr/share/elasticsearch/data
+  
   kibana:
     depends_on:
       - elasticsearch
-    image: slideroom/kibana:116
+    image: docker.elastic.co/kibana/kibana:7.6.0
     ports:
       - 5601:5601
 
   redis:
-    image: redis:alpine
+    image: redis:5.0-alpine
     ports:
       - 6379:6379
- 
+
 volumes:
-  esdata:
+  esdata7:
     driver: local
   appdata:
+    driver: local
+  ssldata:
     driver: local

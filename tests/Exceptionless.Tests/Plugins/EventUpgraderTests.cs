@@ -1,16 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using Exceptionless.Tests.Utility;
 using Exceptionless.Core.Plugins.EventParser;
 using Exceptionless.Core.Plugins.EventUpgrader;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Plugins {
-    public class EventUpgraderTests : TestWithServices {
+    public sealed class EventUpgraderTests : TestWithServices {
         private readonly EventUpgraderPluginManager _upgrader;
         private readonly EventParserPluginManager _parser;
 
@@ -19,10 +16,8 @@ namespace Exceptionless.Tests.Plugins {
             _parser = GetService<EventParserPluginManager>();
         }
 
-#if DEBUG
         [Theory]
         [MemberData(nameof(Errors))]
-#endif
         public void ParseErrors(string errorFilePath) {
             string json = File.ReadAllText(errorFilePath);
             var ctx = new EventUpgraderContext(json);

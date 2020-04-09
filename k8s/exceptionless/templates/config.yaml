@@ -3,26 +3,32 @@ kind: ConfigMap
 metadata:
     name: {{ template "exceptionless.fullname" . }}-config
 data:
-    AppMode: Development
-    BaseUrl: https://{{.Values.api.domain}}
-{{- if (.Values.elasticsearch.connectionString) }}
-    ConnectionStrings__Elasticsearch: {{.Values.elasticsearch.connectionString}}
-{{- else }}
-    ConnectionStrings__Elasticsearch: server=http://{{ template "exceptionless.fullname" . }}-elasticsearch:9200
+    EX_AppMode: {{ default "Production" .Values.appMode }}
+    {{- if .Values.scope }}
+    EX_Scope: {{ .Values.scope }}
+    {{- end }}
+    EX_ApiUrl: https://{{.Values.api.defaultDomain}}
+    EX_BaseUrl: https://{{.Values.app.defaultDomain}}
+    EX_ExceptionlessServerUrl: https://{{.Values.collector.defaultDomain}}
+    EX_DisabledPlugins: GeoPlugin,LocationPlugin
+    EX_EnableSsl: "true"
+    EX_Html5Mode: "true"
+    EX_ConnectionStrings__Elasticsearch: {{ default "server=http://elasticsearch:9200" .Values.elasticsearch.connectionString }}
+    {{- if (empty .Values.redis.connectionString) }}
+    EX_ConnectionStrings__Redis: server={{ template "exceptionless.fullname" . }}-redis-master,abortConnect=false
+    {{- else }}
+    EX_ConnectionStrings__Redis: {{ .Values.redis.connectionString }}
+    {{- end }}
+    EX_ConnectionStrings__Storage: {{ default "provider=folder;path=/app/storage" .Values.storage.connectionString }}
+    EX_ConnectionStrings__Cache: {{ default "provider=redis;" .Values.cache.connectionString }}
+    EX_ConnectionStrings__MessageBus: {{ default "provider=redis;" .Values.messagebus.connectionString }}
+    {{- if .Values.statsd.token }}
+    EX_ConnectionStrings__Metrics: provider=statsd;server={{ template "exceptionless.fullname" . }}-statsd
+    {{- else if .Values.metrics.connectionString }}
+    EX_ConnectionStrings__Metrics: {{ .Values.metrics.connectionString }}
+    {{- end }}
+    EX_ConnectionStrings__Queue: {{ default "provider=redis;" .Values.queue.connectionString }}
+    EX_ConnectionStrings__Email: {{ default "smtp://localhost" .Values.email.connectionString }}
+{{- if .Values.config }}
+{{ toYaml .Values.config | indent 4 }}
 {{- end }}
-{{- if (.Values.redis.connectionString) }}
-    ConnectionStrings__Redis: {{.Values.redis.connectionString}}
-{{- else }}
-    ConnectionStrings__Redis: server=redis-master,abortConnect=false"
-{{- end }}
-{{- if (.Values.storage.azureConnectionString) }}
-    ConnectionStrings__Storage: provider=azurestorage;{{.Values.storage.azureConnectionString}}
-{{- else }}
-    ConnectionStrings__Storage: provider=folder;path=/app/storage
-{{- end }}
-    ConnectionStrings__Cache: provider=redis;
-    ConnectionStrings__MessageBus: provider=redis;
-    ConnectionStrings__Metrics.off: provider=statsd;server=10.0.0.5;
-    ConnectionStrings__Queue: provider=redis;
-    ExceptionlessServerUrl: https://{{.Values.collector.domain}}
-{{ .Values.extraConfig | indent 4 }}

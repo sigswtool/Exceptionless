@@ -1,28 +1,25 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core.Billing;
 using Exceptionless.Core.Repositories;
 using Exceptionless.Core.Models;
 using Foundatio.Caching;
 using Foundatio.Repositories;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
-using LogLevel = Microsoft.Extensions.Logging.LogLevel; 
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class OrganizationRepositoryTests : ElasticTestBase {
+    public sealed class OrganizationRepositoryTests : IntegrationTestsBase {
         private readonly InMemoryCacheClient _cache;
         private readonly IOrganizationRepository _repository;
         private readonly BillingPlans _plans;
 
-        public OrganizationRepositoryTests(ITestOutputHelper output) : base(output) {
+        public OrganizationRepositoryTests(ITestOutputHelper output, AppWebHostFactory factory) : base(output, factory) {
+            Log.SetLogLevel<OrganizationRepository>(LogLevel.Trace);
             _cache = GetService<ICacheClient>() as InMemoryCacheClient;
             _repository = GetService<IOrganizationRepository>();
             _plans = GetService<BillingPlans>();
-
-            Log.SetLogLevel<OrganizationRepository>(LogLevel.Trace);
         }
 
         [Fact]
@@ -33,7 +30,7 @@ namespace Exceptionless.Tests.Repositories {
             Assert.Null(organization.Id);
 
             await _repository.AddAsync(organization);
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             Assert.NotNull(organization.Id);
 
             organization = await _repository.GetByIdAsync(organization.Id);
@@ -55,7 +52,7 @@ namespace Exceptionless.Tests.Repositories {
                 new Organization { Name = "Test Organization", PlanId = _plans.FreePlan.Id, RetentionDays = 2 }
             });
 
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             Assert.Equal(3, await _repository.CountAsync());
 
             var organizations = await _repository.GetByRetentionDaysEnabledAsync(o => o.PageNumber(1).PageLimit(1));
@@ -73,11 +70,11 @@ namespace Exceptionless.Tests.Repositories {
             Assert.Equal(2, organizations.Total);
 
             await _repository.RemoveAsync(organizations.Documents);
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
 
             Assert.Equal(1, await _repository.CountAsync());
             await _repository.RemoveAllAsync();
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
         }
 
         [Fact]
@@ -87,7 +84,7 @@ namespace Exceptionless.Tests.Repositories {
 
             Assert.Equal(0, _cache.Count);
             await _repository.AddAsync(organization, o => o.Cache());
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             Assert.NotNull(organization.Id);
             Assert.Equal(1, _cache.Count);
 
@@ -98,7 +95,7 @@ namespace Exceptionless.Tests.Repositories {
             Assert.Equal(1, _cache.Count);
 
             await _repository.RemoveAllAsync();
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             Assert.Equal(0, _cache.Count);
         }
     }

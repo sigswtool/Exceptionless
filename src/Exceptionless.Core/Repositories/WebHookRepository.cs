@@ -2,18 +2,18 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Repositories.Configuration;
 using FluentValidation;
 using Foundatio.Repositories;
 using Foundatio.Repositories.Models;
-using Microsoft.Extensions.Options;
 using Nest;
 
 namespace Exceptionless.Core.Repositories {
     public sealed class WebHookRepository : RepositoryOwnedByOrganizationAndProject<WebHook>, IWebHookRepository {
-        public WebHookRepository(ExceptionlessElasticConfiguration configuration, IValidator<WebHook> validator, IOptions<AppOptions> options)
-            : base(configuration.Organizations.WebHook, validator, options) {}
+        public WebHookRepository(ExceptionlessElasticConfiguration configuration, IValidator<WebHook> validator, AppOptions options)
+            : base(configuration.WebHooks, validator, options) {}
 
         public Task<FindResults<WebHook>> GetByUrlAsync(string targetUrl) {
             return FindAsync(q => q.FieldEquals(w => w.Url, targetUrl));
@@ -26,6 +26,15 @@ namespace Exceptionless.Core.Repositories {
             return FindAsync(q => q.ElasticFilter(filter), o => o.CacheKey(String.Concat("paged:Organization:", organizationId, ":Project:", projectId)));
         }
 
+        public async Task MarkDisabledAsync(string id) {
+            var webHook = await GetByIdAsync(id).AnyContext();
+            if (!webHook.IsEnabled)
+                return;
+            
+            webHook.IsEnabled = false;
+            await this.SaveAsync(webHook, o => o.Cache()).AnyContext();
+        }
+        
         public static class EventTypes {
             // TODO: Add support for these new web hook types.
             public const string NewError = "NewError";

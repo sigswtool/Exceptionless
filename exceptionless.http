@@ -1,4 +1,4 @@
-@token = 5f8aT5j0M1SdWCMOiJKCrlDNHMI38LjCH4LTWqGp
+@token = _token_
 @apiUrl = http://exceptionless.localtest.me:5000/api/v2
 @projectId = 537650f3b77efe23a47914f4
 

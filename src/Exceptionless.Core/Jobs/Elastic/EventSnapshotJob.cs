@@ -1,12 +1,10 @@
-﻿using System;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.Core.Repositories.Configuration;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace Exceptionless.Core.Jobs.Elastic {
     [Job(Description = "Takes an Elasticsearch events index snapshot ", IsContinuous = false)]
@@ -15,8 +13,8 @@ namespace Exceptionless.Core.Jobs.Elastic {
 
         public EventSnapshotJob(ExceptionlessElasticConfiguration configuration, ILockProvider lockProvider, ILoggerFactory loggerFactory) : base(configuration.Client, lockProvider, loggerFactory) {
             _configuration = configuration;
-            Repository = configuration.Options.ScopePrefix + "ex_events";
-            IncludedIndexes.Add("events*");
+            Repository = configuration.Options.ScopePrefix + "events";
+            IncludedIndexes.Add(configuration.Events.Name + "*");
         }
 
         public override Task<JobResult> RunAsync(CancellationToken cancellationToken = new CancellationToken()) {

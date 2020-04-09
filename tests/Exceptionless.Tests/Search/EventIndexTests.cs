@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Exceptionless.Core.Queries.Validation;
@@ -14,15 +14,42 @@ using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class EventIndexTests : ElasticTestBase {
+    public sealed class EventIndexTests : IntegrationTestsBase {
         private readonly IEventRepository _repository;
         private readonly PersistentEventQueryValidator _validator;
 
-        public EventIndexTests(ITestOutputHelper output) : base(output) {
-            SystemClock.Test.SetFixedTime(new DateTime(2015, 2, 13, 0, 0, 0, DateTimeKind.Utc));
+        public EventIndexTests(ITestOutputHelper output, AppWebHostFactory factory) : base(output, factory) {
+            TestSystemClock.SetFrozenTime(new DateTime(2015, 2, 13, 0, 0, 0, DateTimeKind.Utc));
             _repository = GetService<IEventRepository>();
             _validator = GetService<PersistentEventQueryValidator>();
-            CreateEventsAsync().GetAwaiter().GetResult();
+        }
+        
+        protected override async Task ResetDataAsync() {
+            await base.ResetDataAsync();
+            await CreateEventsAsync();
+        }
+        
+        [Theory]
+        [InlineData("54dbc16ca0f5c61398427b00", 1)] // Id
+        [InlineData("\"GET /Print\"", 1)] // Source
+        [InlineData("\"Invalid hash. Parameter name: hash\"", 1)] // Message
+        [InlineData("\"Blake Niemyjski\"", 1)] // Tags
+        [InlineData("502", 1)] // Error.Code
+        [InlineData("NullReferenceException", 1)] // Error.Type
+        [InlineData("System.NullReferenceException", 1)] // Error.Type
+        [InlineData("Exception", 3)] // Error.TargetType
+        [InlineData("System.Web.ThreadContext.AssociateWithCurrentThread", 1)] // Error.TargetMethod
+        [InlineData("\"/apple-touch-icon.png\"", 1)] // RequestInfo.Path
+        [InlineData("my custom description", 1)] // UserDescription.Description
+        [InlineData("test@exceptionless.com", 1)] // UserDescription.EmailAddress
+        [InlineData("TEST@exceptionless.com", 1)] // UserDescription.EmailAddress wrong case
+        [InlineData("exceptionless.com", 2)] // UserDescription.EmailAddress partial
+        [InlineData("example@exceptionless.com", 2)] // UserInfo.Identity
+        [InlineData("test user", 1)] // UserInfo.Name
+        public async Task GetByAllFieldAsync(string search, int count) {
+            var result = await GetByFilterAsync(search);
+            Assert.NotNull(result);
+            Assert.Equal(count, result.Total);
         }
 
         [Theory]
@@ -37,7 +64,7 @@ namespace Exceptionless.Tests.Repositories {
 
         [Theory]
         [InlineData("000000000000000000000000", 0)]
-        [InlineData("1ecd0826e447ad1e78877555", 3)]
+        [InlineData("1ecd0826e447ad1e78877555", 4)]
         public async Task GetByOrganizationIdAsync(string id, int count) {
             var result = await GetByFilterAsync("organization:" + id);
             Assert.NotNull(result);
@@ -46,7 +73,7 @@ namespace Exceptionless.Tests.Repositories {
 
         [Theory]
         [InlineData("000000000000000000000000", 0)]
-        [InlineData("1ecd0826e447ad1e78877ab2", 3)]
+        [InlineData("1ecd0826e447ad1e78877ab2", 4)]
         public async Task GetByProjectIdAsync(string id, int count) {
             var result = await GetByFilterAsync("project:" + id);
             Assert.NotNull(result);
@@ -56,7 +83,7 @@ namespace Exceptionless.Tests.Repositories {
         [Theory]
         [InlineData("000000000000000000000000", 0)]
         [InlineData("1ecd0826e447a44e78877ab1", 1)]
-        [InlineData("2ecd0826e447a44e78877ab2", 2)]
+        [InlineData("2ecd0826e447a44e78877ab2", 3)]
         public async Task GetByStackIdAsync(string id, int count) {
             var result = await GetByFilterAsync("stack:" + id);
             Assert.NotNull(result);
@@ -75,7 +102,7 @@ namespace Exceptionless.Tests.Repositories {
         [Theory]
         [InlineData("log", 1)]
         [InlineData("error", 2)]
-        [InlineData("custom", 0)]
+        [InlineData("custom", 1)]
         public async Task GetByTypeAsync(string type, int count) {
             var result = await GetByFilterAsync("type:" + type);
             Assert.NotNull(result);
@@ -84,7 +111,7 @@ namespace Exceptionless.Tests.Repositories {
 
         [Theory]
         [InlineData("_exists_:submission", 1)]
-        [InlineData("_missing_:submission", 2)]
+        [InlineData("_missing_:submission", 3)]
         [InlineData("submission:UnobservedTaskException", 1)]
         public async Task GetBySubmissionMethodAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -119,7 +146,7 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData(false, 2)]
+        [InlineData(false, 3)]
         [InlineData(true, 1)]
         public async Task GetByFirstAsync(bool first, int count) {
             var result = await GetByFilterAsync("first:" + first.ToString().ToLowerInvariant());
@@ -128,7 +155,6 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("\"Invalid hash. Parameter name: hash\"", 1)] //see what the actual def is for the standard analyzer
         [InlineData("message:\"Invalid hash. Parameter name: hash\"", 1)]
         public async Task GetByMessageAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -137,10 +163,10 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("_missing_:tag", 1)]
+        [InlineData("_missing_:tag", 2)]
         [InlineData("tag:test", 1)]
-        [InlineData("tag:Blake", 1)]
-        [InlineData("tag:Niemyjski", 1)]
+        [InlineData("tag:Blake", 0)]
+        [InlineData("tag:Niemyjski", 0)]
         [InlineData("tag:\"Blake Niemyjski\"", 1)]
         public async Task GetByTagAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -149,11 +175,14 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("_missing_:value", 2)]
+        [InlineData("_missing_:value", 3)]
         [InlineData("_exists_:value", 1)]
         [InlineData("value:1", 1)]
         [InlineData("value:>0", 1)]
-        [InlineData("value:(>0 AND <=10)", 1)]
+        [InlineData("value:0", 0)]
+        [InlineData("value:<0", 0)]
+        [InlineData("value:>0 AND value:<=10", 1)]
+        [InlineData("value:[1..10]", 1)]
         public async Task GetByValueAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
             Assert.NotNull(result);
@@ -161,7 +190,7 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData(false, 2)]
+        [InlineData(false, 3)]
         [InlineData(true, 1)]
         public async Task GetByFixedAsync(bool @fixed, int count) {
             var result = await GetByFilterAsync("fixed:" + @fixed.ToString().ToLowerInvariant());
@@ -170,7 +199,7 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData(false, 2)]
+        [InlineData(false, 3)]
         [InlineData(true, 1)]
         public async Task GetByHiddenAsync(bool hidden, int count) {
             var result = await GetByFilterAsync("hidden:" + hidden.ToString().ToLowerInvariant());
@@ -179,7 +208,7 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("1", 1)]
+        [InlineData("1", 2)]
         [InlineData("1.2", 1)]
         [InlineData("1.2.3", 1)]
         [InlineData("1.2.3.0", 1)]
@@ -201,7 +230,6 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("SERVER-01", 1)]
         [InlineData("machine:SERVER-01", 1)]
         [InlineData("machine:\"SERVER-01\"", 1)]
         public async Task GetByMachineAsync(string filter, int count) {
@@ -211,14 +239,11 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("\"2001:0:4137:9e76:cfd:33a0:5198:3a66\"", 1)]
         [InlineData("ip:\"2001:0:4137:9e76:cfd:33a0:5198:3a66\"", 1)]
-        [InlineData("192.168.0.243", 1)]
         [InlineData("ip:192.168.0.243", 1)]
-        [InlineData("192.168.0.88", 1)]
         [InlineData("ip:192.168.0.88", 1)]
-        [InlineData("10.0.0.208", 1)]
         [InlineData("ip:10.0.0.208", 1)]
+        [InlineData("ip:172.10.0.61", 1)]
         public async Task GetByIPAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
             Assert.NotNull(result);
@@ -325,7 +350,7 @@ namespace Exceptionless.Tests.Repositories {
 
         [Theory]
         [InlineData("bot:false", 1)]
-        [InlineData("-bot:true", 2)]
+        [InlineData("-bot:true", 3)]
         [InlineData("bot:true", 1)]
         public async Task GetByBotAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -334,9 +359,9 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("500", 1)]
+        [InlineData("502", 1)]
         [InlineData("error.code:\"-1\"", 1)]
-        [InlineData("error.code:500", 1)]
+        [InlineData("error.code:502", 1)]
         [InlineData("error.code:5000", 0)]
         public async Task GetByErrorCodeAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -371,7 +396,7 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("Exception", 2)]
+        [InlineData("Exception", 3)]
         [InlineData("error.targettype:Exception", 1)]
         [InlineData("error.targettype:\"System.Exception\"", 1)]
         public async Task GetByErrorTargetTypeAsync(string filter, int count) {
@@ -393,12 +418,12 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("My-User-Identity", 1)]
+        [InlineData("My-User-Identity", 2)]
         [InlineData("user:My-User-Identity", 1)]
-        [InlineData("example@exceptionless.com", 1)]
+        [InlineData("example@exceptionless.com", 2)]
         [InlineData("user:example@exceptionless.com", 1)]
         [InlineData("user:exceptionless.com", 1)]
-        [InlineData("example", 1)]
+        [InlineData("example", 2)]
         public async Task GetByUserAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
             Assert.NotNull(result);
@@ -406,7 +431,7 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("Blake", 2)] // Matches due to user name and partial tag
+        [InlineData("Blake", 1)]
         [InlineData("user.name:Blake", 1)]
         public async Task GetByUserNameAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -437,9 +462,12 @@ namespace Exceptionless.Tests.Repositories {
         [InlineData("data.anumber:12", 1)]
         [InlineData("data.anumber:>11", 1)]
         [InlineData("data.anumber2:>11", 0)]
-        //[InlineData("data.FriendlyErrorIdentifier:\"Foo-7967BB\"", 1)]
+        [InlineData("data.FriendlyErrorIdentifier:\"Foo-7967BB\"", 1)]
+        [InlineData("data.FriendlyErrorIdentifier:Foo-7967BB", 1)]
         [InlineData("data.some-date:>2015-01-01", 1)]
         [InlineData("data.some-date:<2015-01-01", 0)]
+        [InlineData("data.EntityId:88df3f71-c888-42a7-12c4-08d67c7d888", 1)]
+        [InlineData("data.UserId:\"3db4f3c2-88c7-4e37-b692-3a545036088\"", 1)]
         public async Task GetByCustomDataAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
             Assert.NotNull(result);
@@ -462,10 +490,11 @@ namespace Exceptionless.Tests.Repositories {
                 await _repository.AddAsync(events, o => o.ImmediateConsistency());
             }
 
-            GetService<ExceptionlessElasticConfiguration>().Events.Event.QueryParser.Configuration.RefreshMapping();
+            var configuration = GetService<ExceptionlessElasticConfiguration>();
+            configuration.Events.QueryParser.Configuration.RefreshMapping();
         }
 
-        private async Task<FindResults<PersistentEvent>> GetByFilterAsync(string filter) {
+        private async Task<FindResults<PersistentEvent>> GetByFilterAsync(string filter, string search = null) {
             var result = await _validator.ValidateQueryAsync(filter);
             Assert.True(result.IsValid);
             Log.SetLogLevel<EventRepository>(LogLevel.Trace);

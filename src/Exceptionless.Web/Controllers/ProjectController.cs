@@ -25,32 +25,36 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace Exceptionless.Web.Controllers {
     [Route(API_PREFIX + "/projects")]
     [Authorize(Policy = AuthorizationRoles.ClientPolicy)]
     public class ProjectController : RepositoryApiController<IProjectRepository, Project, ViewProject, NewProject, UpdateProject> {
         private readonly IOrganizationRepository _organizationRepository;
+        private readonly IProjectRepository _projectRepository;
+        private readonly IStackRepository _stackRepository;
         private readonly IEventRepository _eventRepository;
         private readonly IQueue<WorkItemData> _workItemQueue;
         private readonly BillingManager _billingManager;
         private readonly SlackService _slackService;
-        private readonly IOptions<AppOptions> _options;
+        private readonly AppOptions _options;
 
         public ProjectController(
-            IProjectRepository projectRepository,
             IOrganizationRepository organizationRepository,
+            IProjectRepository projectRepository,
+            IStackRepository stackRepository,
             IEventRepository eventRepository,
             IQueue<WorkItemData> workItemQueue,
             BillingManager billingManager,
             SlackService slackService,
             IMapper mapper,
             IQueryValidator validator,
-            IOptions<AppOptions> options,
+            AppOptions options,
             ILoggerFactory loggerFactory
-            ) : base(projectRepository, mapper, validator, loggerFactory) {
+        ) : base(projectRepository, mapper, validator, loggerFactory) {
             _organizationRepository = organizationRepository;
+            _projectRepository = projectRepository;
+            _stackRepository = stackRepository;
             _eventRepository = eventRepository;
             _workItemQueue = workItemQueue;
             _billingManager = billingManager;
@@ -63,15 +67,23 @@ namespace Exceptionless.Web.Controllers {
         /// <summary>
         /// Get all
         /// </summary>
+        /// <param name="filter">A filter that controls what data is returned from the server.</param>
+        /// <param name="sort">Controls the sort order that the data is returned in. In this example -created returns the results descending by the created date.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
         /// <param name="mode">If no mode is set then the a light weight project object will be returned. If the mode is set to stats than the fully populated object will be returned.</param>
         [HttpGet]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<ViewProject>> GetAsync(int page = 1, int limit = 10, string mode = null) {
+        public async Task<ActionResult<ViewProject>> GetAsync(string filter = null, string sort = null, int page = 1, int limit = 10, string mode = null) {
+            var organizations = await GetSelectedOrganizationsAsync(_organizationRepository, _projectRepository, _stackRepository, filter);
+            if (organizations.Count == 0)
+                return Ok(EmptyModels);
+            
             page = GetPage(page);
-            limit = GetLimit(limit);
-            var projects = await _repository.GetByOrganizationIdsAsync(GetAssociatedOrganizationIds(), o => o.PageNumber(page).PageLimit(limit));
+            limit = GetLimit(limit, 1000);
+            
+            var sf = new AppFilter(organizations) { IsUserOrganizationsFilter = true };
+            var projects = await _repository.GetByFilterAsync(sf, filter, sort, o => o.PageNumber(page).PageLimit(limit));
             var viewProjects = await MapCollectionAsync<ViewProject>(projects.Documents, true);
 
             if (!String.IsNullOrEmpty(mode) && String.Equals(mode, "stats", StringComparison.OrdinalIgnoreCase))
@@ -83,20 +95,24 @@ namespace Exceptionless.Web.Controllers {
         /// <summary>
         /// Get all
         /// </summary>
-        /// <param name="organization">The identifier of the organization.</param>
+        /// <param name="filter">A filter that controls what data is returned from the server.</param>
+        /// <param name="sort">Controls the sort order that the data is returned in. In this example -created returns the results descending by the created date.</param>
+        /// <param name="organizationId">The identifier of the organization.</param>
         /// <param name="page">The page parameter is used for pagination. This value must be greater than 0.</param>
         /// <param name="limit">A limit on the number of objects to be returned. Limit can range between 1 and 100 items.</param>
         /// <param name="mode">If no mode is set then the a light weight project object will be returned. If the mode is set to stats than the fully populated object will be returned.</param>
         /// <response code="404">The organization could not be found.</response>
-        [HttpGet("~/" + API_PREFIX + "/organizations/{organization:objectid}/projects")]
+        [HttpGet("~/" + API_PREFIX + "/organizations/{organizationId:objectid}/projects")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
-        public async Task<ActionResult<IReadOnlyCollection<ViewProject>>> GetByOrganizationAsync(string organization, int page = 1, int limit = 10, string mode = null) {
-            if (String.IsNullOrEmpty(organization) || !CanAccessOrganization(organization))
+        public async Task<ActionResult<IReadOnlyCollection<ViewProject>>> GetByOrganizationAsync(string organizationId, string filter = null, string sort = null, int page = 1, int limit = 10, string mode = null) {
+            var organization = await GetOrganizationAsync(organizationId);
+            if (organization == null)
                 return NotFound();
 
             page = GetPage(page);
-            limit = GetLimit(limit);
-            var projects = await _repository.GetByOrganizationIdAsync(organization, o => o.PageNumber(page).PageLimit(limit));
+            limit = GetLimit(limit, 1000);
+            var sf = new AppFilter(organization);
+            var projects = await _repository.GetByFilterAsync(sf, filter, sort, o => o.PageNumber(page).PageLimit(limit));
             var viewProjects = (await MapCollectionAsync<ViewProject>(projects.Documents, true)).ToList();
 
             if (!String.IsNullOrEmpty(mode) && String.Equals(mode, "stats", StringComparison.OrdinalIgnoreCase))
@@ -133,6 +149,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="400">An error occurred while creating the project.</response>
         /// <response code="409">The project already exists.</response>
         [HttpPost]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         [ProducesResponseType(StatusCodes.Status201Created)]
         public Task<ActionResult<ViewProject>> PostAsync(NewProject project) {
@@ -148,6 +165,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">The project could not be found.</response>
         [HttpPatch("{id:objectid}")]
         [HttpPut("{id:objectid}")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public Task<ActionResult<ViewProject>> PatchAsync(string id, Delta<UpdateProject> changes) {
             return PatchImplAsync(id, changes);
@@ -218,6 +236,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="400">Invalid configuration value.</response>
         /// <response code="404">The project could not be found.</response>
         [HttpPost("{id:objectid}/config")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> SetConfigAsync(string id, string key, ValueFromBody<string> value) {
             if (String.IsNullOrWhiteSpace(key) || String.IsNullOrWhiteSpace(value?.Value))
@@ -341,6 +360,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">The project could not be found.</response>
         [HttpPut("~/" + API_PREFIX + "/users/{userId:objectid}/projects/{id:objectid}/notifications")]
         [HttpPost("~/" + API_PREFIX + "/users/{userId:objectid}/projects/{id:objectid}/notifications")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> SetNotificationSettingsAsync(string id, string userId, NotificationSettings settings) {
             var project = await GetModelAsync(id, false);
@@ -369,6 +389,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="426">Please upgrade your plan to enable integrations.</response>
         [HttpPut("{id:objectid}/{integration:minlength(1)}/notifications")]
         [HttpPost("{id:objectid}/{integration:minlength(1)}/notifications")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> SetIntegrationNotificationSettingsAsync(string id, string integration, NotificationSettings settings) {
             if (!String.Equals(Project.NotificationIntegrations.Slack, integration))
@@ -427,6 +448,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">The project could not be found.</response>
         [HttpPut("{id:objectid}/promotedtabs")]
         [HttpPost("{id:objectid}/promotedtabs")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> PromoteTabAsync(string id, string name) {
             if (String.IsNullOrWhiteSpace(name))
@@ -507,6 +529,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="400">Invalid key or value.</response>
         /// <response code="404">The project could not be found.</response>
         [HttpPost("{id:objectid}/data")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> PostDataAsync(string id, string key, ValueFromBody<string> value) {
             if (String.IsNullOrWhiteSpace(key) || String.IsNullOrWhiteSpace(value?.Value) || key.StartsWith("-"))
@@ -554,6 +577,7 @@ namespace Exceptionless.Web.Controllers {
         /// <response code="404">The project could not be found.</response>
         [ApiExplorerSettings(IgnoreApi = true)]
         [HttpPost("{id:objectid}/slack")]
+        [Consumes("application/json")]
         [Authorize(Policy = AuthorizationRoles.UserPolicy)]
         public async Task<IActionResult> AddSlackAsync(string id, string code) {
             if (String.IsNullOrWhiteSpace(code))
@@ -678,6 +702,13 @@ namespace Exceptionless.Web.Controllers {
 
             return workItems;
         }
+        
+        private Task<Organization> GetOrganizationAsync(string organizationId, bool useCache = true) {
+            if (String.IsNullOrEmpty(organizationId) || !CanAccessOrganization(organizationId))
+                return Task.FromResult<Organization>(null);
+
+            return _organizationRepository.GetByIdAsync(organizationId, o => o.Cache(useCache));
+        }
 
         private async Task<ViewProject> PopulateProjectStatsAsync(ViewProject project) {
             return (await PopulateProjectStatsAsync(new List<ViewProject> { project })).FirstOrDefault();
@@ -687,11 +718,11 @@ namespace Exceptionless.Web.Controllers {
             if (viewProjects.Count <= 0)
                 return viewProjects;
 
-            int maximumRetentionDays = _options.Value.MaximumRetentionDays;
+            int maximumRetentionDays = _options.MaximumRetentionDays;
             var organizations = await _organizationRepository.GetByIdsAsync(viewProjects.Select(p => p.OrganizationId).ToArray(), o => o.Cache());
             var projects = viewProjects.Select(p => new Project { Id = p.Id, CreatedUtc = p.CreatedUtc, OrganizationId = p.OrganizationId }).ToList();
-            var sf = new ExceptionlessSystemFilter(projects, organizations);
-            var systemFilter = new RepositoryQuery<PersistentEvent>().SystemFilter(sf).DateRange(organizations.GetRetentionUtcCutoff(maximumRetentionDays), SystemClock.UtcNow, (PersistentEvent e) => e.Date).Index(organizations.GetRetentionUtcCutoff(maximumRetentionDays), SystemClock.UtcNow);
+            var sf = new AppFilter(projects, organizations);
+            var systemFilter = new RepositoryQuery<PersistentEvent>().AppFilter(sf).DateRange(organizations.GetRetentionUtcCutoff(maximumRetentionDays), SystemClock.UtcNow, (PersistentEvent e) => e.Date).Index(organizations.GetRetentionUtcCutoff(maximumRetentionDays), SystemClock.UtcNow);
             var result = await _eventRepository.CountBySearchAsync(systemFilter, null, $"terms:(project_id~{viewProjects.Count} cardinality:stack_id)");
             foreach (var project in viewProjects) {
                 var term = result.Aggregations.Terms<string>("terms_project_id")?.Buckets.FirstOrDefault(t => t.Key == project.Id);

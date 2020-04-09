@@ -23,21 +23,25 @@ before_build:
       VERSION="$VERSION_PREFIX.$VERSION_SUFFIX"
       echo "Version: $VERSION"
     else
+      API_DOCKER_IMAGE=api
+      JOB_DOCKER_IMAGE=job
       VERSION_SUFFIX=$APPVEYOR_BUILD_NUMBER
       VERSION="$VERSION_PREFIX.$VERSION_SUFFIX"
       echo "Version: $VERSION Tag: $APPVEYOR_REPO_TAG_NAME"
     fi
-    appveyor UpdateBuild -Version $VERSION
+    if [ -z $APPVEYOR_PULL_REQUEST_NUMBER ]; then
+      appveyor UpdateBuild -Version $VERSION
+    fi
 
 install:
   - |
-    curl https://storage.googleapis.com/kubernetes-helm/helm-v2.12.1-linux-amd64.tar.gz -o helm.tar.gz
+    curl https://get.helm.sh/helm-v3.0.2-linux-amd64.tar.gz -o helm.tar.gz
     tar -zxvf helm.tar.gz
     sudo mv linux-amd64/helm /usr/local/bin/helm
 
 build_script:
   - docker build --target testrunner -t exceptionless:test --build-arg VERSION_SUFFIX=$VERSION_SUFFIX .
-  - docker run -d -m 2g -p 9200:9200 -p 9300:9300 -e discovery.type=single-node -e xpack.security.enabled=false -e ES_JAVA_OPTS='-Xms512m -Xmx512m' slideroom/elasticsearch:98
+  - docker run -d -m 2g -p 9200:9200 -p 9300:9300 -e discovery.type=single-node -e xpack.security.enabled=false -e ES_JAVA_OPTS='-Xms512m -Xmx512m' exceptionless/elasticsearch:7.5.2
   - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts exceptionless:test
   - docker build --target api -t $API_DOCKER_IMAGE --build-arg VERSION_SUFFIX=$VERSION_SUFFIX .
   - docker build --target job -t $JOB_DOCKER_IMAGE --build-arg VERSION_SUFFIX=$VERSION_SUFFIX .
@@ -46,17 +50,31 @@ deploy_script:
   - echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
   - |
     # tag and push docker image
-    for image in {$API_DOCKER_IMAGE,$JOB_DOCKER_IMAGE}; do  
+    for image in {$API_DOCKER_IMAGE,$JOB_DOCKER_IMAGE}; do
       for tag in {$VERSION,latest}; do
         docker tag $image exceptionless/$image:$tag
         docker push exceptionless/$image:$tag
       done
     done
   - |
-    # deploy latest images to k8s cluster
-    # az login --service-principal --username $AZ_USERNAME --password $AZ_PASSWORD --tenant $AZ_TENANT
-    # az aks get-credentials --resource-group exceptionless-test --name ex-k8s-test2
-    # helm upgrade --set "api.image.tag=$VERSION" --set "jobs.image.tag=$VERSION" --reuse-values exceptionless-test ./k8s/exceptionless
+    echo "Branch: $APPVEYOR_REPO_BRANCH"
+    echo "PR: $APPVEYOR_PULL_REQUEST_NUMBER"
+    if [[ "$APPVEYOR_REPO_BRANCH" == "master" && "$APPVEYOR_PULL_REQUEST_NUMBER" == "" ]]; then
+      # deploy to prod k8s cluster
+      az login --service-principal --username $AZ_USERNAME --password $AZ_PASSWORD --tenant $AZ_TENANT --output none
+      az aks get-credentials --resource-group exceptionless-v6 --name ex-k8s-v6
+      helm upgrade --set "api.image.tag=$VERSION" --set "jobs.image.tag=$VERSION" --reuse-values ex-prod --namespace ex-prod ./k8s/exceptionless
+    else
+      echo "Skipping prod deployment"
+    fi
+    if [[ "$APPVEYOR_REPO_BRANCH" == "master" && "$APPVEYOR_PULL_REQUEST_NUMBER" == "" ]]; then
+      # deploy to dev k8s cluster
+      az login --service-principal --username $AZ_USERNAME --password $AZ_PASSWORD --tenant $AZ_TENANT --output none
+      az aks get-credentials --resource-group exceptionless-v6 --name ex-k8s-v6
+      helm upgrade --set "api.image.tag=$VERSION" --set "jobs.image.tag=$VERSION" --reuse-values ex-dev --namespace ex-dev ./k8s/exceptionless
+    else
+      echo "Skipping dev deployment"
+    fi
 
 artifacts:
   - path: artifacts/*.trx

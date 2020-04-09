@@ -1,23 +1,38 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Exceptionless.Core.Repositories;
 using Exceptionless.Core.Models;
+using Foundatio.Repositories;
 using Foundatio.Repositories.Models;
-using Nest;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Repositories {
-    public sealed class StackIndexTests : ElasticTestBase {
+    public sealed class StackIndexTests : IntegrationTestsBase {
         private readonly IStackRepository _repository;
 
-        public StackIndexTests(ITestOutputHelper output) : base(output) {
+        public StackIndexTests(ITestOutputHelper output, AppWebHostFactory factory) : base(output, factory) {
             _repository = GetService<IStackRepository>();
-            CreateDataAsync().GetAwaiter().GetResult();
+        }
+        
+        protected override async Task ResetDataAsync() {
+            await base.ResetDataAsync();
+            await CreateDataAsync();
         }
 
+        [Theory]
+        [InlineData("\"GET /Print\"", 1)] // Title
+        [InlineData("\"my custom description\"", 1)] // Description
+        [InlineData("\"Blake Niemyjski\"", 1)] // Tags
+        [InlineData("\"http://exceptionless.io\"", 1)] // References
+        public async Task GetByAllFieldAsync(string filter, int count) {
+            var result = await GetByFilterAsync(filter);
+            Assert.NotNull(result);
+            Assert.Equal(count, result.Total);
+        }
+        
         [Theory]
         [InlineData("000000000000000000000000", 0)]
         [InlineData("1ecd0826e447a44e78877ab1", 1)]
@@ -76,7 +91,6 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("(>=20 AND <40)", 1)]
         [InlineData("{5 TO 50}", 1)]
         [InlineData("5", 1)]
         [InlineData("50", 1)]
@@ -87,7 +101,6 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("\"GET /Print\"", 1)]
         [InlineData("title:\"GET /Print\"", 1)]
         [InlineData("title:\"The provided anti-forgery token was meant\"", 1)]
         [InlineData("title:\"test@exceptionless.com\"", 1)]
@@ -100,8 +113,8 @@ namespace Exceptionless.Tests.Repositories {
 
         [Theory]
         [InlineData("tag:test", 1)]
-        [InlineData("tag:Blake", 1)]
-        [InlineData("tag:Niemyjski", 1)]
+        [InlineData("tag:Blake", 0)]
+        [InlineData("tag:Niemyjski", 0)]
         [InlineData("tag:\"Blake Niemyjski\"", 1)]
         public async Task GetByTagAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -154,7 +167,6 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("\"http://exceptionless.io\"", 1)]
         [InlineData("links:\"http://exceptionless.io\"", 1)]
         [InlineData("links:\"https://github.com/exceptionless/Exceptionless\"", 1)]
         public async Task GetByLinksAsync(string filter, int count) {
@@ -164,7 +176,6 @@ namespace Exceptionless.Tests.Repositories {
         }
 
         [Theory]
-        [InlineData("\"my custom description\"", 1)]
         [InlineData("description:\"my custom description\"", 1)]
         public async Task GetByDescriptionAsync(string filter, int count) {
             var result = await GetByFilterAsync(filter);
@@ -183,12 +194,10 @@ namespace Exceptionless.Tests.Repositories {
                     using (var streamReader = new StreamReader(stream)) {
                         var stack = serializer.Deserialize(streamReader, typeof(Stack)) as Stack;
                         Assert.NotNull(stack);
-                        await _repository.AddAsync(stack);
+                        await _repository.AddAsync(stack, o => o.ImmediateConsistency());
                     }
                 }
             }
-
-            await _configuration.Client.RefreshAsync(Indices.All);
         }
 
         private Task<FindResults<Stack>> GetByFilterAsync(string filter) {

@@ -77,18 +77,22 @@ metadata:
   name: {{ template "exceptionless.fullname" . }}-app-ingress
   annotations:
     kubernetes.io/ingress.class: nginx
-    certmanager.k8s.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   tls:
   - hosts:
-    - {{.Values.app.domain}}
+    {{- range .Values.app.domains }}
+    - {{ . }}
+    {{- end }}
     secretName: {{ template "exceptionless.fullname" . }}-app-tls
   rules:
-  - host: {{.Values.app.domain}}
+  {{- range .Values.app.domains }}
+  - host: {{ . }}
     http:
       paths:
       - path: /
         backend:
-          serviceName: {{ template "exceptionless.fullname" . }}-app
+          serviceName: {{ template "exceptionless.fullname" $ }}-app
           servicePort: 80
+  {{- end }}

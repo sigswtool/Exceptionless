@@ -7,7 +7,6 @@ using Exceptionless.Core.Repositories;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Repositories.Queries;
 using Exceptionless.DateTimeExtensions;
-using Exceptionless.Web.Security;
 using Exceptionless.Web.Utility;
 using Exceptionless.Web.Utility.Results;
 using Foundatio.Repositories;
@@ -15,8 +14,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Exceptionless.Web.Controllers {
-  [ApiController]
-  [RequireHttpsExceptLocal]
+    [Produces("application/json")]
+    [ApiController]
     public abstract class ExceptionlessApiController : Controller {
         public const string API_PREFIX = "api/v2";
         protected const int DEFAULT_LIMIT = 10;
@@ -57,11 +56,14 @@ namespace Exceptionless.Web.Controllers {
             return timeInfo;
         }
 
-        protected int GetLimit(int limit) {
+        protected int GetLimit(int limit, int maximumLimit = MAXIMUM_LIMIT) {
+            if (maximumLimit < MAXIMUM_LIMIT)
+                throw new ArgumentOutOfRangeException(nameof(maximumLimit));
+                
             if (limit < 1)
                 limit = DEFAULT_LIMIT;
-            else if (limit > MAXIMUM_LIMIT)
-                limit = MAXIMUM_LIMIT;
+            else if (limit > maximumLimit)
+                limit = maximumLimit;
 
             return limit;
         }
@@ -136,7 +138,7 @@ namespace Exceptionless.Web.Controllers {
             return organizations.ToList().AsReadOnly();
         }
 
-        protected bool ShouldApplySystemFilter(ExceptionlessSystemFilter sf, string filter) {
+        protected bool ShouldApplySystemFilter(AppFilter sf, string filter) {
             // Apply filter to non admin user.
             if (!Request.IsGlobalAdmin())
                 return true;
@@ -191,18 +193,12 @@ namespace Exceptionless.Web.Controllers {
             return new OkWithHeadersContentResult<T>(content, headers);
         }
 
-        protected OkWithResourceLinks<TEntity> OkWithResourceLinks<TEntity>(IEnumerable<TEntity> content, bool hasMore, Func<TEntity, string> pagePropertyAccessor = null, IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers = null, bool isDescending = false) where TEntity : class {
-            var headersToAdd = new HeaderDictionary();
-            if (headers != null) {
-                foreach (var kvp in headers)
-                    headersToAdd.Add(kvp.Key, kvp.Value.ToArray());
-            }
-
-            return new OkWithResourceLinks<TEntity>(content, hasMore, null, pagePropertyAccessor, headersToAdd, isDescending);
+        protected OkWithResourceLinks<TEntity> OkWithResourceLinks<TEntity>(IEnumerable<TEntity> content, bool hasMore, Func<TEntity, string> pagePropertyAccessor = null, IHeaderDictionary headers = null, bool isDescending = false) where TEntity : class {
+            return new OkWithResourceLinks<TEntity>(content, hasMore, null, pagePropertyAccessor, headers, isDescending);
         }
 
-        protected OkWithResourceLinks<TEntity> OkWithResourceLinks<TEntity>(IEnumerable<TEntity> content, bool hasMore, int page, long? total = null, IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers = null) where TEntity : class {
-            return new OkWithResourceLinks<TEntity>(content, hasMore, page, total);
+        protected OkWithResourceLinks<TEntity> OkWithResourceLinks<TEntity>(IEnumerable<TEntity> content, bool hasMore, int page, long? total = null, IHeaderDictionary headers = null) where TEntity : class {
+            return new OkWithResourceLinks<TEntity>(content, hasMore, page, total, headers: headers);
         }
 
         protected string GetResourceLink(string url, string type) {

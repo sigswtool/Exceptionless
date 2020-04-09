@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.Core;
 using Exceptionless.Core.Billing;
@@ -14,99 +13,95 @@ using Exceptionless.Tests.Utility;
 using Foundatio.Queues;
 using Foundatio.Storage;
 using Foundatio.Repositories;
+using Foundatio.Serializer;
 using Foundatio.Utility;
-using Microsoft.Extensions.Options;
-using Nest;
-using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Jobs {
-    public class EventPostJobTests : ElasticTestBase {
+    public class EventPostJobTests : IntegrationTestsBase {
         private readonly EventPostsJob _job;
         private readonly IFileStorage _storage;
         private readonly IOrganizationRepository _organizationRepository;
         private readonly IProjectRepository _projectRepository;
         private readonly IEventRepository _eventRepository;
-        private readonly IQueue<EventPost> _queue;
+        private readonly IQueue<EventPost> _eventQueue;
         private readonly IUserRepository _userRepository;
-        private readonly JsonSerializerSettings _jsonSerializerSettings;
+        private readonly ITextSerializer _serializer;
         private readonly EventPostService _eventPostService;
         private readonly BillingManager _billingManager;
         private readonly BillingPlans _plans;
-        private readonly IOptions<AppOptions> _options;
+        private readonly AppOptions _options;
 
-        public EventPostJobTests(ITestOutputHelper output) : base(output) {
+        public EventPostJobTests(ITestOutputHelper output, AppWebHostFactory factory) : base(output, factory) {
             _job = GetService<EventPostsJob>();
-            _queue = GetService <IQueue<EventPost>>();
+            _eventQueue = GetService <IQueue<EventPost>>();
             _storage = GetService<IFileStorage>();
-            _eventPostService = new EventPostService(_queue, _storage, Log);
+            _eventPostService = new EventPostService(_eventQueue, _storage, Log);
             _organizationRepository = GetService<IOrganizationRepository>();
             _projectRepository = GetService<IProjectRepository>();
             _eventRepository = GetService<IEventRepository>();
             _userRepository = GetService<IUserRepository>();
-            _jsonSerializerSettings = GetService<JsonSerializerSettings>();
+            _serializer = GetService<ITextSerializer>();
             _billingManager = GetService<BillingManager>();
             _plans = GetService<BillingPlans>();
-            _options = GetService<IOptions<AppOptions>>();
-
-            CreateDataAsync().GetAwaiter().GetResult();
+            _options = GetService<AppOptions>();
+        }
+        
+        protected override async Task ResetDataAsync() {
+            await base.ResetDataAsync();
+            await _eventQueue.DeleteQueueAsync();
+            await CreateDataAsync();
         }
 
         [Fact]
         public async Task CanRunJob() {
-            await _storage.DeleteFilesAsync(await _storage.GetFileListAsync());
-
             var ev = GenerateEvent();
             Assert.NotNull(await EnqueueEventPostAsync(ev));
-            Assert.Equal(1, (await _queue.GetQueueStatsAsync()).Enqueued);
-            Assert.Equal(2, (await _storage.GetFileListAsync()).Count());
+            Assert.Equal(1, (await _eventQueue.GetQueueStatsAsync()).Enqueued);
+            Assert.Equal(2, (await _storage.GetFileListAsync()).Count);
 
             var result = await _job.RunAsync();
             Assert.True(result.IsSuccess);
 
-            var stats = await _queue.GetQueueStatsAsync();
+            var stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Dequeued);
             Assert.Equal(1, stats.Completed);
 
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             Assert.Equal(1, await _eventRepository.CountAsync());
         }
 
         [Fact]
         public async Task CanRunJobWithMassiveEventAsync() {
-            await _storage.DeleteFilesAsync(await _storage.GetFileListAsync());
-
             var ev = GenerateEvent();
             for (int i = 1; i < 150; i++)
                 ev.Data[$"{i}MB"] = new string('0', 1024 * 1000);
 
             Assert.NotNull(await EnqueueEventPostAsync(ev));
-            Assert.Equal(1, (await _queue.GetQueueStatsAsync()).Enqueued);
-            Assert.Equal(2, (await _storage.GetFileListAsync()).Count());
+            Assert.Equal(1, (await _eventQueue.GetQueueStatsAsync()).Enqueued);
+            Assert.Equal(2, (await _storage.GetFileListAsync()).Count);
 
             var result = await _job.RunAsync();
             Assert.False(result.IsSuccess);
 
-            var stats = await _queue.GetQueueStatsAsync();
+            var stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Dequeued);
             Assert.Equal(1, stats.Completed);
         }
 
         [Fact]
         public async Task CanRunJobWithNonExistingEventDataAsync() {
-            await _storage.DeleteFilesAsync(await _storage.GetFileListAsync());
-
             var ev = GenerateEvent();
             Assert.NotNull(await EnqueueEventPostAsync(ev));
-            Assert.Equal(1, (await _queue.GetQueueStatsAsync()).Enqueued);
+            Assert.Equal(1, (await _eventQueue.GetQueueStatsAsync()).Enqueued);
 
             await _storage.DeleteFilesAsync(await _storage.GetFileListAsync());
 
             var result = await _job.RunAsync();
             Assert.False(result.IsSuccess);
 
-            var stats = await _queue.GetQueueStatsAsync();
+            var stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Dequeued);
             Assert.Equal(1, stats.Abandoned);
         }
@@ -147,7 +142,7 @@ namespace Exceptionless.Tests.Jobs {
         }
 
         private async Task<string> EnqueueEventPostAsync(PersistentEvent ev) {
-            var eventPostInfo = new EventPost(_options.Value.EnableArchive) {
+            var eventPostInfo = new EventPost(_options.EnableArchive) {
                 OrganizationId = ev.OrganizationId,
                 ProjectId = ev.ProjectId,
                 ApiVersion = 2,
@@ -157,7 +152,7 @@ namespace Exceptionless.Tests.Jobs {
                 UserAgent = "exceptionless-test",
             };
 
-            var stream = new MemoryStream(ev.GetBytes(_jsonSerializerSettings).Compress());
+            var stream = new MemoryStream(_serializer.SerializeToBytes(ev).Compress());
             return await _eventPostService.EnqueueAsync(eventPostInfo, stream).AnyContext();
         }
 

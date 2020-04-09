@@ -1,14 +1,21 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <Import Project="..\..\build\common.props" />
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-  </PropertyGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\Exceptionless.Core\Exceptionless.Core.csproj" />
     <ProjectReference Include="..\Exceptionless.Insulation\Exceptionless.Insulation.csproj" />
   </ItemGroup>
+
   <ItemGroup>
-    <None Include="appsettings.yml" Link="appsettings.yml" CopyToOutputDirectory="Always" />
-    <None Include="appsettings.*.yml" Link="%(Filename).yml" DependentUpon="appsettings.yml" CopyToOutputDirectory="Always" />
+    <PackageReference Include="Foundatio.Hosting" Version="9.0.0" />
+    <PackageReference Include="Exceptionless.AspNetCore.Signed" Version="4.3.2027" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.13.1" />
+    <PackageReference Include="App.Metrics.AspNetCore" Version="3.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="3.1.3" />
+    <PackageReference Include="Serilog.AspNetCore" Version="3.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.yml" CopyToOutputDirectory="Always" />
+    <Content Include="appsettings.*.yml" DependentUpon="appsettings.yml" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>

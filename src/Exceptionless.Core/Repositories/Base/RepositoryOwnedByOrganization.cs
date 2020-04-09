@@ -8,13 +8,12 @@ using Foundatio.Repositories;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Microsoft.Extensions.Options;
 
 namespace Exceptionless.Core.Repositories {
     public abstract class RepositoryOwnedByOrganization<T> : RepositoryBase<T>, IRepositoryOwnedByOrganization<T> where T : class, IOwnedByOrganization, IIdentity, new() {
-        public RepositoryOwnedByOrganization(IIndexType<T> indexType, IValidator<T> validator, IOptions<AppOptions> options) : base(indexType, validator, options) {
-            FieldsRequiredForRemove.Add("organization_id");
+        public RepositoryOwnedByOrganization(IIndex index, IValidator<T> validator, AppOptions options) : base(index, validator, options) {
             DocumentsAdded.AddHandler(OnDocumentsAdded);
+            AddPropertyRequiredForRemove(o => o.OrganizationId);
         }
 
         public virtual Task<FindResults<T>> GetByOrganizationIdAsync(string organizationId, CommandOptionsDescriptor<T> options = null) {

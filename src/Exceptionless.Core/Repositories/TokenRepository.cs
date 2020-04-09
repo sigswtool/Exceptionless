@@ -7,14 +7,13 @@ using Exceptionless.Core.Repositories.Configuration;
 using FluentValidation;
 using Foundatio.Repositories;
 using Foundatio.Repositories.Models;
-using Microsoft.Extensions.Options;
 using Nest;
 using Token = Exceptionless.Core.Models.Token;
 
 namespace Exceptionless.Core.Repositories {
     public class TokenRepository : RepositoryOwnedByOrganizationAndProject<Token>, ITokenRepository {
-        public TokenRepository(ExceptionlessElasticConfiguration configuration, IValidator<Token> validator, IOptions<AppOptions> options)
-            : base(configuration.Organizations.Token, validator, options) {
+        public TokenRepository(ExceptionlessElasticConfiguration configuration, IValidator<Token> validator, AppOptions options)
+            : base(configuration.Tokens, validator, options) {
         }
 
         public Task<FindResults<Token>> GetByTypeAndUserIdAsync(TokenType type, string userId, CommandOptionsDescriptor<Token> options = null) {

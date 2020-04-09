@@ -20,7 +20,6 @@ using Foundatio.Jobs;
 using Foundatio.Queues;
 using Foundatio.Repositories;
 using Microsoft.Extensions.Logging;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using Run = Exceptionless.Tests.Utility.Run;
@@ -30,24 +29,22 @@ namespace Exceptionless.Tests.Controllers {
         private readonly IEventRepository _eventRepository;
         private readonly IQueue<EventPost> _eventQueue;
         private readonly IQueue<EventUserDescription> _eventUserDescriptionQueue;
-        private readonly IOrganizationRepository _organizationRepository;
-        private readonly IProjectRepository _projectRepository;
-        private readonly ITokenRepository _tokenRepository;
 
-        public EventControllerTests(ITestOutputHelper output) : base(output) {
-            _organizationRepository = GetService<IOrganizationRepository>();
-            _projectRepository = GetService<IProjectRepository>();
-            _tokenRepository = GetService<ITokenRepository>();
+        public EventControllerTests(ITestOutputHelper output, AppWebHostFactory factory) : base(output, factory) {
             _eventRepository = GetService<IEventRepository>();
             _eventQueue = GetService<IQueue<EventPost>>();
             _eventUserDescriptionQueue = GetService<IQueue<EventUserDescription>>();
+        }
 
-            CreateOrganizationAndProjectsAsync().GetAwaiter().GetResult();
+        protected override async Task ResetDataAsync() {
+            await base.ResetDataAsync();
+            await _eventQueue.DeleteQueueAsync();
+            await CreateOrganizationAndProjectsAsync();
         }
 
         [Fact]
         public async Task CanPostUserDescriptionAsync() {
-            await SendRequest(r => r
+            await SendRequestAsync(r => r
                .Post()
                .AsClientUser()
                .AppendPath("events/by-ref/TestReferenceId/user-description")
@@ -70,7 +67,7 @@ namespace Exceptionless.Tests.Controllers {
         [Fact]
         public async Task CanPostStringAsync() {
             const string message = "simple string";
-            await SendRequest(r => r
+            await SendRequestAsync(r => r
                 .Post()
                 .AsClientUser()
                 .AppendPath("events")
@@ -84,7 +81,7 @@ namespace Exceptionless.Tests.Controllers {
 
             var processEventsJob = GetService<EventPostsJob>();
             await processEventsJob.RunAsync();
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
 
             stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Completed);
@@ -111,20 +108,13 @@ namespace Exceptionless.Tests.Controllers {
             Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
             Assert.True(response.Headers.Contains(Headers.ConfigurationVersion));
 
-            //var response = await SendTokenRequest(TestConstants.ApiKey, r => r
-            //   .Post()
-            //   .AppendPath("events")
-            //   .Content(CompressString(message))
-            //   .StatusCodeShouldBeAccepted()
-            //);
-
             var stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Enqueued);
             Assert.Equal(0, stats.Completed);
 
             var processEventsJob = GetService<EventPostsJob>();
             await processEventsJob.RunAsync();
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
 
             stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Completed);
@@ -139,7 +129,7 @@ namespace Exceptionless.Tests.Controllers {
             if (String.IsNullOrEmpty(ev.Message))
                 ev.Message = "Generated message.";
 
-            await SendRequest(r => r
+            await SendRequestAsync(r => r
                 .Post()
                 .AsClientUser()
                 .AppendPath("events")
@@ -153,7 +143,7 @@ namespace Exceptionless.Tests.Controllers {
 
             var processEventsJob = GetService<EventPostsJob>();
             await processEventsJob.RunAsync();
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
 
             stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(1, stats.Completed);
@@ -170,7 +160,7 @@ namespace Exceptionless.Tests.Controllers {
 
             await Run.InParallelAsync(batchCount, async i => {
                 var events = new RandomEventGenerator().Generate(batchSize, false);
-                await SendRequest(r => r
+                await SendRequestAsync(r => r
                    .Post()
                    .AsClientUser()
                    .AppendPath("events")
@@ -179,7 +169,7 @@ namespace Exceptionless.Tests.Controllers {
                 );
             });
 
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             var stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(batchCount, stats.Enqueued);
             Assert.Equal(0, stats.Completed);
@@ -190,47 +180,21 @@ namespace Exceptionless.Tests.Controllers {
             sw.Stop();
             _logger.LogInformation("{Duration:g}", sw.Elapsed);
 
-            await _configuration.Client.RefreshAsync(Indices.All);
+            await RefreshDataAsync();
             stats = await _eventQueue.GetQueueStatsAsync();
             Assert.Equal(batchCount, stats.Completed);
             Assert.Equal(batchSize * batchCount, await _eventRepository.CountAsync());
         }
 
-        //private ByteArrayContent CompressString(string data) {
-        //    byte[] bytes = Encoding.UTF8.GetBytes(data);
-        //    using (var stream = new MemoryStream()) {
-        //        using (var zipper = new GZipStream(stream, CompressionMode.Compress, true))
-        //            zipper.Write(bytes, 0, bytes.Length);
-
-        //        var content = new ByteArrayContent(stream.ToArray());
-        //        content.Headers.ContentType = new MediaTypeHeaderValue("text/plain") {
-        //            CharSet = "utf-8"
-        //        };
-        //        content.Headers.ContentEncoding.Add("gzip");
-        //        return content;
-        //    }
-        //}
-
-        //private ByteArrayContent JsonCompress(object data) {
-        //    byte[] bytes = Encoding.UTF8.GetBytes(_serializer.SerializeToString(data));
-        //    using (var stream = new MemoryStream()) {
-        //        using (var zipper = new GZipStream(stream, CompressionMode.Compress, true))
-        //            zipper.Write(bytes, 0, bytes.Length);
-
-        //        var content = new ByteArrayContent(stream.ToArray());
-        //        content.Headers.ContentType = new MediaTypeHeaderValue("application/json") {
-        //            CharSet = "utf-8"
-        //        };
-        //        content.Headers.ContentEncoding.Add("gzip");
-        //        return content;
-        //    }
-        //}
-
         private Task CreateOrganizationAndProjectsAsync() {
+            var organizationRepository = GetService<IOrganizationRepository>();
+            var projectRepository = GetService<IProjectRepository>();
+            var tokenRepository = GetService<ITokenRepository>();
+
             return Task.WhenAll(
-                _organizationRepository.AddAsync(OrganizationData.GenerateSampleOrganizations(GetService<BillingManager>(), GetService<BillingPlans>()), o => o.ImmediateConsistency()),
-                _projectRepository.AddAsync(ProjectData.GenerateSampleProjects(), o => o.ImmediateConsistency()),
-                _tokenRepository.AddAsync(TokenData.GenerateSampleApiKeyToken(), o => o.ImmediateConsistency())
+                organizationRepository.AddAsync(OrganizationData.GenerateSampleOrganizations(GetService<BillingManager>(), GetService<BillingPlans>()), o => o.ImmediateConsistency()),
+                projectRepository.AddAsync(ProjectData.GenerateSampleProjects(), o => o.ImmediateConsistency()),
+                tokenRepository.AddAsync(TokenData.GenerateSampleApiKeyToken(), o => o.ImmediateConsistency())
             );
         }
     }

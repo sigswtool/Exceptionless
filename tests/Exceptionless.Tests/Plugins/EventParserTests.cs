@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using Exceptionless.Tests.Utility;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Models;
 using Exceptionless.Core.Plugins.EventParser;
@@ -12,7 +10,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Exceptionless.Tests.Plugins {
-    public class EventParserTests : TestWithServices {
+    public sealed class EventParserTests : TestWithServices {
         private readonly EventParserPluginManager _parser;
 
         public EventParserTests(ServicesFixture fixture, ITestOutputHelper output) : base(fixture, output) {
@@ -46,11 +44,7 @@ namespace Exceptionless.Tests.Plugins {
             }
         }
 
-#if DEBUG
         [Theory]
-#else
-        [Theory(Skip = "Only for testing")]
-#endif
         [MemberData(nameof(Events))]
         public void VerifyEventParserSerialization(string eventsFilePath) {
             string json = File.ReadAllText(eventsFilePath);
